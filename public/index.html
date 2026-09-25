@@ -1,12 +1,94 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>retne.games</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="retne.games — independent game studio based in Bali, Indonesia.">
+  <meta name="theme-color" content="#0b0b0a">
+  <title>retne.games — Independent Game Studio</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <script src="/app.js" defer></script>
 </head>
 <body>
-    <h1>Hello world!</h1>
-    <p>retne.games 2026</p>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="retne.games home">retne.games</a>
+    <nav class="site-nav" aria-label="Main navigation">
+      <a href="#about">About</a>
+      <a href="#contact">Contact Us</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-inner">
+        <p class="eyebrow">Independent game studio</p>
+        <h1 id="hero-title">retne.games</h1>
+        <p class="hero-subtitle">Games made with care.</p>
+      </div>
+      <a class="scroll-cue" href="#about" aria-label="Scroll to About">
+        <span>Scroll</span>
+        <span aria-hidden="true">↓</span>
+      </a>
+    </section>
+
+    <section id="about" class="section about" aria-labelledby="about-title">
+      <div class="section-label">01 / About</div>
+      <div class="section-content">
+        <h2 id="about-title">We are a small independent game studio based in Bali, Indonesia.</h2>
+      </div>
+    </section>
+
+    <section id="contact" class="section contact" aria-labelledby="contact-title">
+      <div class="section-label">02 / Contact Us</div>
+      <div class="section-content">
+        <div class="contact-heading">
+          <h2 id="contact-title">Get in touch.</h2>
+          <p>Have a question, idea, or just want to say hello?</p>
+        </div>
+
+        <form id="contact-form" class="contact-form" novalidate>
+          <div class="form-field">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" autocomplete="email"
+                   inputmode="email" maxlength="254" required>
+          </div>
+
+          <div class="form-field">
+            <label for="subject">Subject</label>
+            <input id="subject" name="subject" type="text" maxlength="200" required>
+          </div>
+
+          <div class="form-field">
+            <label for="message">Message</label>
+            <textarea id="message" name="message" rows="7" maxlength="5000" required></textarea>
+          </div>
+
+          <!-- Honeypot: legitimate users never see or fill this field. -->
+          <div class="honeypot" aria-hidden="true">
+            <label for="website">Website</label>
+            <input id="website" name="website" type="text" tabindex="-1" autocomplete="off">
+          </div>
+
+          <div class="captcha-wrap">
+            <!-- Replace the placeholder with your production Turnstile sitekey. -->
+            <div class="cf-turnstile"
+                 data-sitekey="YOUR_TURNSTILE_SITE_KEY"
+                 data-theme="dark"
+                 data-action="contact"></div>
+          </div>
+
+          <div class="form-actions">
+            <button id="submit-button" type="submit">Send message</button>
+            <p id="form-status" class="form-status" role="status" aria-live="polite"></p>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>© <span id="copyright-year"></span> retne.games</span>
+  </footer>
 </body>
 </html>

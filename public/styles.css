@@ -1,0 +1,442 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0b0a;
+  --surface: #11110f;
+  --text: #f2f0e9;
+  --muted: #9b9a94;
+  --line: rgba(242, 240, 233, 0.14);
+  --line-strong: rgba(242, 240, 233, 0.28);
+  --accent: #d8c59a;
+  --max-width: 1240px;
+  --header-height: 76px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: var(--header-height);
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 50% -20%, rgba(216, 197, 154, 0.08), transparent 34rem),
+    var(--bg);
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+  z-index: 10;
+}
+
+a {
+  color: inherit;
+}
+
+.site-header {
+  position: fixed;
+  z-index: 20;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(1.25rem, 4vw, 3.5rem);
+  background: rgba(11, 11, 10, 0.72);
+  border-bottom: 1px solid transparent;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.brand {
+  text-decoration: none;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.045em;
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: clamp(1.25rem, 3vw, 2.75rem);
+}
+
+.site-nav a {
+  position: relative;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  transition: color 180ms ease;
+}
+
+.site-nav a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 100%;
+  bottom: -0.35rem;
+  height: 1px;
+  background: var(--text);
+  transition: right 180ms ease;
+}
+
+.site-nav a:hover,
+.site-nav a:focus-visible {
+  color: var(--text);
+}
+
+.site-nav a:hover::after,
+.site-nav a:focus-visible::after {
+  right: 0;
+}
+
+.hero {
+  position: relative;
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--header-height) + 2rem) 1.5rem 5rem;
+  overflow: hidden;
+}
+
+.hero::before,
+.hero::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.hero::before {
+  width: min(70vw, 850px);
+  aspect-ratio: 1;
+  background: radial-gradient(circle, rgba(216, 197, 154, 0.08), transparent 66%);
+  transform: translateY(-10%);
+}
+
+.hero::after {
+  width: min(80vw, 1000px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--line), transparent);
+  bottom: 13%;
+}
+
+.hero-inner {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  animation: hero-in 900ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.eyebrow {
+  margin: 0 0 1.4rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 1rem;
+  font-size: clamp(4rem, 13vw, 10rem);
+  line-height: 0.84;
+  letter-spacing: -0.075em;
+  font-weight: 650;
+}
+
+.hero-subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: clamp(1rem, 2vw, 1.35rem);
+}
+
+.scroll-cue {
+  position: absolute;
+  z-index: 1;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.scroll-cue span:last-child {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.section {
+  width: min(100% - 3rem, var(--max-width));
+  margin: 0 auto;
+  padding: clamp(7rem, 14vw, 12rem) 0;
+  display: grid;
+  grid-template-columns: minmax(130px, 0.3fr) minmax(0, 1fr);
+  gap: clamp(2rem, 8vw, 8rem);
+  border-top: 1px solid var(--line);
+}
+
+.section-label {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.section-content {
+  min-width: 0;
+}
+
+.about h2 {
+  max-width: 900px;
+  margin-bottom: 0;
+  font-size: clamp(2.3rem, 5.3vw, 5.2rem);
+  line-height: 1.03;
+  letter-spacing: -0.055em;
+  font-weight: 500;
+}
+
+.contact-heading {
+  margin-bottom: clamp(3rem, 7vw, 5rem);
+}
+
+.contact-heading h2 {
+  margin-bottom: 0.9rem;
+  font-size: clamp(2.8rem, 6vw, 6rem);
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+  font-weight: 550;
+}
+
+.contact-heading p {
+  max-width: 480px;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.contact-form {
+  max-width: 760px;
+}
+
+.form-field {
+  margin-bottom: 2.25rem;
+}
+
+.form-field label {
+  display: block;
+  margin-bottom: 0.7rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.form-field input,
+.form-field textarea {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  border-radius: 0;
+  outline: none;
+  padding: 0.25rem 0 0.9rem;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 1.05rem;
+  resize: vertical;
+  transition: border-color 180ms ease;
+}
+
+.form-field textarea {
+  min-height: 9rem;
+}
+
+.form-field input:focus,
+.form-field textarea:focus {
+  border-color: var(--accent);
+}
+
+.form-field input:user-invalid:not(:focus),
+.form-field textarea:user-invalid:not(:focus) {
+  border-color: rgba(220, 90, 90, 0.8);
+}
+
+.captcha-wrap {
+  margin: 0 0 1.5rem;
+  min-height: 65px;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  align-items: center;
+}
+
+button {
+  border: 1px solid var(--text);
+  border-radius: 999px;
+  padding: 0.85rem 1.5rem;
+  background: var(--text);
+  color: var(--bg);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+button:hover:not(:disabled),
+button:focus-visible:not(:disabled) {
+  background: transparent;
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.form-status {
+  min-height: 1.4rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.form-status.success {
+  color: #b8d6b3;
+}
+
+.form-status.error {
+  color: #e3a7a7;
+}
+
+.honeypot {
+  position: absolute !important;
+  left: -10000px !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+}
+
+.site-footer {
+  width: min(100% - 3rem, var(--max-width));
+  margin: 0 auto;
+  padding: 2rem 0 2.5rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+@keyframes hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .hero-inner {
+    animation: none;
+  }
+
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 680px) {
+  :root {
+    --header-height: 68px;
+  }
+
+  .site-header {
+    padding: 0 1.25rem;
+  }
+
+  .site-nav {
+    gap: 1rem;
+  }
+
+  .site-nav a {
+    font-size: 0.68rem;
+  }
+
+  .hero {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+
+  h1 {
+    font-size: clamp(3.25rem, 17vw, 6rem);
+  }
+
+  .section {
+    width: min(100% - 2.5rem, var(--max-width));
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    padding: 6rem 0;
+  }
+
+  .section-label {
+    margin-bottom: 0;
+  }
+
+  .about h2 {
+    font-size: clamp(2.15rem, 10vw, 4rem);
+  }
+
+  .contact-heading h2 {
+    font-size: clamp(2.7rem, 14vw, 5rem);
+  }
+
+  .site-footer {
+    width: min(100% - 2.5rem, var(--max-width));
+  }
+}

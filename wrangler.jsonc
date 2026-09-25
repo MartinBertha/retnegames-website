@@ -1,7 +1,39 @@
 {
+  "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "retnegames-website",
-  "compatibility_date": "2026-09-24",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-26",
+
   "assets": {
-    "directory": "./public"
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "remote": true,
+      "destination_address": "hello@retne.games",
+      "allowed_sender_addresses": [
+        "hello@retne.games"
+      ]
+    }
+  ],
+
+  "ratelimits": [
+    {
+      "name": "CONTACT_RATE_LIMITER",
+      "namespace_id": "9001",
+      "simple": {
+        "limit": 3,
+        "period": 60
+      }
+    }
+  ],
+
+  "secrets": {
+    "required": [
+      "TURNSTILE_SECRET"
+    ]
   }
 }
