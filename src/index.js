@@ -37,22 +37,31 @@ function cleanHeaderText(value) {
 }
 
 async function verifyTurnstile(token, secret, ip, expectedHostname) {
+  const formData = new URLSearchParams();
+
+  formData.append("secret", secret);
+  formData.append("response", token);
+
+  if (ip && ip !== "unknown") {
+    formData.append("remoteip", ip);
+  }
+
   const response = await fetch(
     "https://challenges.cloudflare.com/turnstile/v0/siteverify",
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        secret,
-        response: token,
-        remoteip: ip
-      })
+      headers: {
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: formData
     }
   );
 
-  if (!response.ok) return false;
+  const result = await response.json().catch(() => ({}));
 
-  const result = await response.json();
+  if (!response.ok) {
+    return false;
+  }
 
   return Boolean(
     result.success
@@ -81,11 +90,18 @@ function securityHeaders(response) {
       "upgrade-insecure-requests"
     ].join("; ")
   );
+
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  headers.set(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=()"
+  );
   headers.set("X-Frame-Options", "DENY");
-  headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  headers.set(
+    "Strict-Transport-Security",
+    "max-age=31536000; includeSubDomains"
+  );
 
   return new Response(response.body, {
     status: response.status,
@@ -125,15 +141,16 @@ export default {
         return json({ error: "Forbidden." }, 403);
       }
 
-      const contentLength = Number(request.headers.get("Content-Length") || 0);
+      const contentLength = Number(
+        request.headers.get("Content-Length") || 0
+      );
+
       if (contentLength > MAX_BODY_BYTES) {
         return json({ error: "Request too large." }, 413, origin);
       }
 
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
 
-      // 3 contact submissions per minute per source IP.
-      // This is an abuse-control layer; Turnstile remains mandatory.
       if (env.CONTACT_RATE_LIMITER) {
         const { success } = await env.CONTACT_RATE_LIMITER.limit({
           key: `contact:${ip}`
@@ -141,7 +158,9 @@ export default {
 
         if (!success) {
           return json(
-            { error: "Too many requests. Please wait a minute and try again." },
+            {
+              error: "Too many requests. Please wait a minute and try again."
+            },
             429,
             origin
           );
@@ -149,26 +168,33 @@ export default {
       }
 
       let body;
+
       try {
         body = await request.json();
       } catch {
         return json({ error: "Invalid request." }, 400, origin);
       }
 
-      const email = typeof body.email === "string" ? body.email.trim() : "";
+      const email = typeof body.email === "string"
+        ? body.email.trim()
+        : "";
+
       const subject = typeof body.subject === "string"
         ? cleanHeaderText(body.subject)
         : "";
+
       const message = typeof body.message === "string"
         ? body.message.trim()
         : "";
-      const website = typeof body.website === "string" ? body.website.trim() : "";
+
+      const website = typeof body.website === "string"
+        ? body.website.trim()
+        : "";
+
       const turnstileToken = typeof body.turnstileToken === "string"
         ? body.turnstileToken
         : "";
 
-      // Bots that fill the hidden honeypot receive a generic success response
-      // without causing an email to be sent.
       if (website) {
         return json({ success: true }, 200, origin);
       }
@@ -182,10 +208,15 @@ export default {
         || !turnstileToken
         || turnstileToken.length > 2048
       ) {
-        return json({ error: "Please check the form fields and try again." }, 400, origin);
+        return json(
+          { error: "Please check the form fields and try again." },
+          400,
+          origin
+        );
       }
 
       const hostname = url.hostname;
+
       const turnstileValid = await verifyTurnstile(
         turnstileToken,
         env.TURNSTILE_SECRET,
@@ -201,27 +232,51 @@ export default {
         );
       }
 
-      const emailResult = await env.EMAIL.send({
-        to: EMAIL_ADDRESS,
-        from: EMAIL_ADDRESS,
-        replyTo: email,
-        subject: `[retne.games] ${subject}`,
-        text: [
-          `New message from retne.games`,
-          ``,
-          `From: ${email}`,
-          `Subject: ${subject}`,
-          ``,
-          message,
-          ``,
-          `---`,
-          `Sent via retne.games contact form.`
-        ].join("\n")
-      });
+      const emailResponse = await fetch(
+        "https://api.resend.com/emails",
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            from: "retne.games <hello@retne.games>",
+            to: [EMAIL_ADDRESS],
+            reply_to: email,
+            subject: `[retne.games] ${subject}`,
+            text: [
+              "New message from retne.games",
+              "",
+              `From: ${email}`,
+              `Subject: ${subject}`,
+              "",
+              message,
+              "",
+              "---",
+              "Sent via retne.games contact form."
+            ].join("\n")
+          })
+        }
+      );
 
-      if (!emailResult?.messageId) {
+      if (!emailResponse.ok) {
         return json(
-          { error: "We couldn't send your message. Please try again later." },
+          {
+            error: "We couldn't send your message. Please try again later."
+          },
+          502,
+          origin
+        );
+      }
+
+      const emailResult = await emailResponse.json();
+
+      if (!emailResult?.id) {
+        return json(
+          {
+            error: "We couldn't send your message. Please try again later."
+          },
           502,
           origin
         );

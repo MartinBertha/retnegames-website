@@ -9,17 +9,6 @@
     "binding": "ASSETS"
   },
 
-  "send_email": [
-    {
-      "name": "EMAIL",
-      "remote": true,
-      "destination_address": "hello@retne.games",
-      "allowed_sender_addresses": [
-        "hello@retne.games"
-      ]
-    }
-  ],
-
   "ratelimits": [
     {
       "name": "CONTACT_RATE_LIMITER",
@@ -33,7 +22,8 @@
 
   "secrets": {
     "required": [
-      "TURNSTILE_SECRET"
+      "TURNSTILE_SECRET",
+      "RESEND_API_KEY"
     ]
   }
 }
