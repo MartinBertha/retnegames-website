@@ -7,6 +7,7 @@
   --line: rgba(242, 240, 233, 0.14);
   --line-strong: rgba(242, 240, 233, 0.28);
   --accent: #d8c59a;
+  --label: #8fb855;
   --max-width: 1240px;
   --header-height: 76px;
 }
@@ -80,7 +81,7 @@ a {
 .site-nav a {
   position: relative;
   text-decoration: none;
-  color: #8fb855;
+  color: var(--label);
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.09em;
@@ -149,7 +150,7 @@ a {
 
 .eyebrow {
   margin: 0 0 1.4rem;
-  color: var(--muted);
+  color: var(--label);
   font-size: 0.72rem;
   font-weight: 650;
   letter-spacing: 0.18em;
@@ -185,7 +186,7 @@ h1 {
   display: flex;
   gap: 0.7rem;
   align-items: center;
-  color: var(--muted);
+  color: var(--label);
   text-decoration: none;
   font-size: 0.7rem;
   letter-spacing: 0.14em;
@@ -193,7 +194,7 @@ h1 {
 }
 
 .scroll-cue span:last-child {
-  color: var(--text);
+  color: var(--label);
   font-size: 1rem;
 }
 
@@ -208,7 +209,7 @@ h1 {
 }
 
 .section-label {
-  color: var(--muted);
+  color: var(--label);
   font-size: 0.68rem;
   font-weight: 650;
   letter-spacing: 0.14em;
@@ -258,7 +259,7 @@ h1 {
 .form-field label {
   display: block;
   margin-bottom: 0.7rem;
-  color: var(--muted);
+  color: var(--label);
   font-size: 0.7rem;
   font-weight: 650;
   letter-spacing: 0.14em;
@@ -362,7 +363,7 @@ button:disabled {
   margin: 0 auto;
   padding: 2rem 0 2.5rem;
   border-top: 1px solid var(--line);
-  color: var(--muted);
+  color: var(--label);
   font-size: 0.72rem;
   letter-spacing: 0.04em;
 }
