@@ -80,7 +80,7 @@ a {
 .site-nav a {
   position: relative;
   text-decoration: none;
-  color: var(--muted);
+  color: #4b692f;
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.09em;
@@ -101,7 +101,7 @@ a {
 
 .site-nav a:hover,
 .site-nav a:focus-visible {
-  color: var(--text);
+  color: #99e550;
 }
 
 .site-nav a:hover::after,
