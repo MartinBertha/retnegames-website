@@ -95,7 +95,7 @@ a {
   right: 100%;
   bottom: -0.35rem;
   height: 1px;
-  background: var(--text);
+  background: #99e550;
   transition: right 180ms ease;
 }
 
