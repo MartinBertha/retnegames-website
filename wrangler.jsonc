@@ -8,6 +8,11 @@
   // Without this, every `wrangler deploy` switches it back on.
   "workers_dev": false,
 
+  // Staging: `npx wrangler versions upload --preview-alias staging` serves
+  // unreleased versions at staging-<name>.<subdomain>.workers.dev.
+  // Protected by Cloudflare Access; must stay on or deploys disable it.
+  "preview_urls": true,
+
   "assets": {
     "directory": "./public",
     "binding": "ASSETS"
