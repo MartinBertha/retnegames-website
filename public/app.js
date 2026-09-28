@@ -23,7 +23,7 @@
     const turnstileToken = form.querySelector("[name='cf-turnstile-response']")?.value;
 
     if (!turnstileToken) {
-      setStatus("Please complete the verification before sending.", "error");
+      setStatus("Still verifying — please try again in a moment.", "error");
       return;
     }
 
