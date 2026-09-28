@@ -4,6 +4,10 @@
   "main": "src/index.js",
   "compatibility_date": "2026-09-26",
 
+  // Keep the public <name>.<subdomain>.workers.dev address switched off.
+  // Without this, every `wrangler deploy` switches it back on.
+  "workers_dev": false,
+
   "assets": {
     "directory": "./public",
     "binding": "ASSETS"
