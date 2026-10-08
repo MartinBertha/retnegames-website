@@ -1,3 +1,11 @@
+/* Perfect DOS VGA 437 by Zeh Fernando. Its pixel grid is 1/16 em, so it only
+   renders sharp at multiples of 16px. */
+@font-face {
+  font-family: "Perfect DOS VGA 437";
+  src: url("/fonts/PerfectDOSVGA437.woff2") format("woff2");
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
   --bg: #0b0b0a;
@@ -8,6 +16,7 @@
   --line-strong: rgba(242, 240, 233, 0.28);
   --accent: #d8c59a;
   --label: #8fb855;
+  --font-dos: "Perfect DOS VGA 437", ui-monospace, monospace;
   --max-width: 1240px;
   --header-height: 76px;
 }
@@ -47,6 +56,21 @@ a {
   color: inherit;
 }
 
+/* Green text uses the DOS pixel font at its native 16px size. */
+.brand,
+.site-nav a,
+.eyebrow,
+.scroll-cue,
+.section-label,
+.form-field label,
+.site-footer {
+  font-family: var(--font-dos);
+  font-size: 16px;
+  font-weight: 400;
+  font-synthesis: none;
+  letter-spacing: 0;
+}
+
 .site-header {
   position: fixed;
   z-index: 20;
@@ -66,9 +90,6 @@ a {
 
 .brand {
   text-decoration: none;
-  font-size: 1.05rem;
-  font-weight: 650;
-  letter-spacing: -0.045em;
   color: #99e550;
 }
 
@@ -82,9 +103,6 @@ a {
   position: relative;
   text-decoration: none;
   color: var(--label);
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.09em;
   text-transform: uppercase;
   transition: color 180ms ease;
 }
@@ -94,7 +112,7 @@ a {
   position: absolute;
   left: 0;
   right: 100%;
-  bottom: -0.35rem;
+  bottom: -6px;
   height: 1px;
   background: #99e550;
   transition: right 180ms ease;
@@ -151,9 +169,6 @@ a {
 .eyebrow {
   margin: 0 0 1.4rem;
   color: var(--label);
-  font-size: 0.72rem;
-  font-weight: 650;
-  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
@@ -188,14 +203,11 @@ h1 {
   align-items: center;
   color: var(--label);
   text-decoration: none;
-  font-size: 0.7rem;
-  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 .scroll-cue span:last-child {
   color: var(--label);
-  font-size: 1rem;
 }
 
 .section {
@@ -210,9 +222,6 @@ h1 {
 
 .section-label {
   color: var(--label);
-  font-size: 0.68rem;
-  font-weight: 650;
-  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
@@ -260,9 +269,6 @@ h1 {
   display: block;
   margin-bottom: 0.7rem;
   color: var(--label);
-  font-size: 0.7rem;
-  font-weight: 650;
-  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
@@ -364,8 +370,6 @@ button:disabled {
   padding: 2rem 0 2.5rem;
   border-top: 1px solid var(--line);
   color: var(--label);
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
 }
 
 @keyframes hero-in {
@@ -404,10 +408,6 @@ button:disabled {
 
   .site-nav {
     gap: 1rem;
-  }
-
-  .site-nav a {
-    font-size: 0.68rem;
   }
 
   .hero {
