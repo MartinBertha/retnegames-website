@@ -3,6 +3,14 @@
    lives here; JS only sets positions and custom properties.
    theme.js sets data-theme="dark" or "light" on <html> before first paint. */
 
+/* Perfect DOS VGA 437 (the site's font), used for the app name only. Its pixel
+   grid is 1/16 em, so it renders sharp only at multiples of 16px. */
+@font-face {
+  font-family: "Perfect DOS VGA 437";
+  src: url("/fonts/PerfectDOSVGA437.woff2") format("woff2");
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
   --bg: #0b0b0a;
@@ -36,6 +44,7 @@
   --tone-purple: #31263d;
   --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 18px rgba(0, 0, 0, 0.28);
   --popup-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --font-dos: "Perfect DOS VGA 437", ui-monospace, monospace;
   --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --radius: 4px;
   --radius-small: 2px;
@@ -131,11 +140,16 @@ textarea {
   background: var(--surface);
 }
 
+/* The app name only: the site's DOS pixel font, at its native 16px. The
+   rest of the hub uses system fonts (the DOS font mis-renders some characters). */
 .brand {
   flex: none;
   color: var(--brand);
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-family: var(--font-dos);
+  font-size: 16px;
+  font-weight: 400;
+  font-synthesis: none;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 

@@ -228,7 +228,7 @@ Notes:
 ### Look and feel
 - Dark and light, defaulting to the system setting (`prefers-color-scheme`) with a manual toggle remembered in `localStorage` (wrap in try/catch).
 - **Titles** of notes, checklists and sections are larger and bold. Corners are only slightly rounded (4px on cards and controls, 2px on small elements).
-- **Match the retne.games visual style:** read `public/styles.css` and reuse its colours and tone where sensible. Use standard system fonts only: not the site's Perfect DOS VGA 437 pixel font (it can't render all characters), and no external or web fonts.
+- **Match the retne.games visual style:** read `public/styles.css` and reuse its colours and tone where sensible. Use standard system fonts, with one exception: the app name in the top-left corner, "retne.games HUB", uses the site's Perfect DOS VGA 437 pixel font at 16px. Nothing else uses that font (it can't render all characters). No external fonts.
 - Touch targets at least 44 px. Visible keyboard focus. `aria-label` on icon buttons. Respect `prefers-reduced-motion`.
 - Must be usable on a phone (about 390 px wide) and on desktop.
 

@@ -224,7 +224,7 @@ function renderBreadcrumb() {
     return item;
   }));
 
-  document.title = `${current.name} · retne hub`;
+  document.title = `${current.name} · retne.games HUB`;
 }
 
 function startBoardRename(button) {
@@ -370,7 +370,7 @@ async function load() {
     current = null;
     view.clear();
     renderBreadcrumb();
-    document.title = "retne hub";
+    document.title = "retne.games HUB";
     showError(error);
   } finally {
     clearTimeout(loading);
@@ -746,12 +746,12 @@ async function importFile(file) {
   try {
     data = JSON.parse(await file.text());
   } catch {
-    showToast(`${file.name} isn't a retne hub export.`, { tone: "error" });
+    showToast(`${file.name} isn't a retne.games HUB export.`, { tone: "error" });
     return;
   }
 
   if (data?.format !== "retne-hub-export") {
-    showToast(`${file.name} isn't a retne hub export.`, { tone: "error" });
+    showToast(`${file.name} isn't a retne.games HUB export.`, { tone: "error" });
     return;
   }
 
