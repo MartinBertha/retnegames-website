@@ -7,6 +7,7 @@ import { BoardView } from "./board.js";
 import { httpUrl } from "./cards.js";
 import { IMAGE_ACCEPT, imageFileProblem, prepareImage } from "./images.js";
 import { Saver } from "./saver.js";
+import { initThemeToggle } from "./theme-toggle.js";
 import { hideToast, showToast } from "./toast.js";
 
 const breadcrumb = document.getElementById("breadcrumb");
@@ -16,6 +17,10 @@ const canvas = document.getElementById("canvas");
 const undoButton = document.getElementById("undo");
 const redoButton = document.getElementById("redo");
 const imageInput = document.getElementById("image-input");
+const zoomLevel = document.getElementById("zoom-reset");
+const moreButton = document.getElementById("more-button");
+const moreMenu = document.getElementById("more-menu");
+const importInput = document.getElementById("import-input");
 
 const BOARD_HASH = /^#\/b\/([0-9a-f-]{36})$/;
 const REV_POLL_MS = 15_000;
@@ -67,7 +72,10 @@ const view = new BoardView(
     onOpenBoard: (id) => {
       window.location.hash = `#/b/${id}`;
     },
-    onViewChange: scheduleViewSave,
+    onViewChange: () => {
+      scheduleViewSave();
+      showZoomLevel();
+    },
     onItemsChange: showEmptyHint,
     onHistoryChange: (history) => {
       undoButton.disabled = !history.canUndo;
@@ -81,7 +89,10 @@ const view = new BoardView(
 );
 
 function showSaveStatus(state) {
+  // Screen readers hear about problems, not every "Saving…".
+  saveStatus.setAttribute("aria-live", state === "saved" || state === "saving" ? "off" : "polite");
   saveStatus.textContent = STATUS_TEXT[state];
+  saveStatus.title = STATUS_TEXT[state];
   saveStatus.dataset.state = state;
 }
 
@@ -122,7 +133,12 @@ function showEmptyHint(count) {
     return;
   }
 
-  if (count === 0) {
+  if (count === 0 && current.parentId === null) {
+    showNotice(
+      "Welcome to your hub.",
+      "Add a folder for each project, or notes, checklists, images and links. Double-click or double-tap anywhere to add a note."
+    );
+  } else if (count === 0) {
     showNotice("This board is empty.", "Double-click or double-tap to add a note, or use the toolbar.");
   } else {
     notice.replaceChildren();
@@ -344,6 +360,7 @@ async function load() {
     notice.replaceChildren();
     renderBreadcrumb();
     view.show(board.id, { x: board.viewX, y: board.viewY, zoom: board.viewZoom }, withLocalChanges(board.id, items));
+    showZoomLevel();
   } catch (error) {
     if (counter !== loadCounter) {
       return;
@@ -623,6 +640,141 @@ document.addEventListener("paste", (event) => {
     addText(text, point);
   }
 });
+
+// ---- Zoom controls ---------------------------------------------------------
+
+function showZoomLevel() {
+  const percent = Math.round(view.viewport.zoom * 100);
+  zoomLevel.textContent = `${percent}%`;
+  zoomLevel.setAttribute("aria-label", `Zoom ${percent}%, reset to 100%`);
+}
+
+document.getElementById("zoom-in").addEventListener("click", () => view.zoomBy(1.25));
+document.getElementById("zoom-out").addEventListener("click", () => view.zoomBy(0.8));
+document.getElementById("fit-all").addEventListener("click", () => view.fitAll());
+zoomLevel.addEventListener("click", () => view.resetZoom());
+
+// ---- More menu: export and import -------------------------------------------
+
+const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
+
+function setMoreMenu(open, { focus = true } = {}) {
+  moreMenu.hidden = !open;
+  moreButton.setAttribute("aria-expanded", String(open));
+
+  if (open && focus) {
+    moreMenu.querySelector("button").focus();
+  }
+}
+
+moreButton.addEventListener("click", () => setMoreMenu(moreMenu.hidden));
+
+document.addEventListener("pointerdown", (event) => {
+  if (!moreMenu.hidden && !moreMenu.contains(event.target) && !moreButton.contains(event.target)) {
+    setMoreMenu(false);
+  }
+}, true);
+
+moreMenu.addEventListener("keydown", (event) => {
+  const items = [...moreMenu.querySelectorAll("button")];
+  const index = items.indexOf(document.activeElement);
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    setMoreMenu(false);
+    moreButton.focus();
+  } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus();
+  }
+});
+
+// Downloads every board and card as JSON (images stay on the server).
+async function exportEverything() {
+  setMoreMenu(false, { focus: false });
+  showToast("Preparing the export…", { timeout: 0 });
+
+  try {
+    await saver.flush();
+
+    const response = await api.exportAll();
+    const name = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") || "")?.[1]
+      || "retne-hub.json";
+    const url = URL.createObjectURL(await response.blob());
+    const link = el("a");
+
+    link.href = url;
+    link.download = name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    showToast(`Exported to ${name}.`);
+  } catch (error) {
+    showToast(error.message || "The export failed.", { tone: "error", timeout: 7000 });
+  }
+}
+
+// Adds an export as a new folder on Home; nothing existing is changed.
+async function importFile(file) {
+  if (file.size > MAX_IMPORT_BYTES) {
+    showToast("Export files can be at most 20 MB.", { tone: "error" });
+    return;
+  }
+
+  let data;
+
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    showToast(`${file.name} isn't a retne hub export.`, { tone: "error" });
+    return;
+  }
+
+  if (data?.format !== "retne-hub-export") {
+    showToast(`${file.name} isn't a retne hub export.`, { tone: "error" });
+    return;
+  }
+
+  showToast("Importing…", { timeout: 0 });
+
+  try {
+    await saver.flush();
+
+    const result = await api.importExport(data);
+    const skipped = result.skippedImages
+      ? ` ${result.skippedImages} image${result.skippedImages === 1 ? " was" : "s were"} not found and left out.`
+      : "";
+
+    showToast(`Imported ${result.boards} boards and ${result.cards} cards into "${result.name}" on Home.${skipped}`, { timeout: 9000 });
+
+    // Show Home, where the new folder is.
+    if (current?.parentId === null) {
+      load();
+    } else {
+      window.location.hash = "#/";
+    }
+  } catch (error) {
+    showToast(error.message || "The import failed.", { tone: "error", timeout: 9000 });
+  }
+}
+
+document.getElementById("export-button").addEventListener("click", exportEverything);
+document.getElementById("import-button").addEventListener("click", () => {
+  setMoreMenu(false, { focus: false });
+  importInput.click();
+});
+
+importInput.addEventListener("change", () => {
+  const file = importInput.files[0];
+  importInput.value = "";
+
+  if (file) {
+    importFile(file);
+  }
+});
+
+initThemeToggle(document.getElementById("theme-toggle"));
 
 // ---- Page events ---------------------------------------------------------------
 

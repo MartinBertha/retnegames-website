@@ -1,5 +1,5 @@
-// Hub API under /hub/api (docs/hub-spec.md, section 5): boards, card changes
-// and images (files.js).
+// Hub API under /hub/api (docs/hub-spec.md, section 5): boards, card changes,
+// images (files.js), and export and import (transfer.js).
 // All SQL uses prepared statements with bound parameters.
 
 import {
@@ -12,6 +12,7 @@ import {
   readJson
 } from "./http.js";
 import { getFile, uploadFile } from "./files.js";
+import { exportAll, importExport } from "./transfer.js";
 import { cleanName, isPlainObject, isUuid, validateItem } from "./validate.js";
 
 const ROOT_BOARD_NAME = "Home";
@@ -599,7 +600,9 @@ const ROUTES = [
   { pattern: /^\/boards\/([^/]+)\/rev$/, methods: { GET: getBoardRev } },
   { pattern: /^\/boards\/([^/]+)\/changes$/, methods: { POST: applyChanges } },
   { pattern: /^\/files$/, methods: { POST: uploadFile } },
-  { pattern: /^\/files\/([^/]+)$/, methods: { GET: getFile } }
+  { pattern: /^\/files\/([^/]+)$/, methods: { GET: getFile } },
+  { pattern: /^\/export$/, methods: { GET: exportAll } },
+  { pattern: /^\/import$/, methods: { POST: importExport } }
 ];
 
 export async function handleApi(request, env, url) {

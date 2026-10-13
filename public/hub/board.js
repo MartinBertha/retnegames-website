@@ -152,6 +152,22 @@ export class BoardView {
     // Safari's own pinch would zoom the whole page.
     canvas.addEventListener("gesturestart", (event) => event.preventDefault());
 
+    // Keyboard focus (Tab) selects the card and brings it into view.
+    this.world.addEventListener("focusin", (event) => {
+      const card = event.target;
+
+      if (card instanceof Element && card.classList.contains("card")) {
+        if (!this.selected.has(card.dataset.id)) {
+          this.setSelection([card.dataset.id]);
+        }
+
+        this.ensureVisible(card.dataset.id);
+      }
+    });
+
+    // Phones: keep the field being edited above the on-screen keyboard.
+    window.visualViewport?.addEventListener("resize", () => this.keepEditorInView());
+
     document.addEventListener("keydown", (event) => this.onKeyDown(event));
     document.addEventListener("keyup", (event) => {
       if (event.key === " ") {
@@ -620,6 +636,64 @@ export class BoardView {
     this.commitChange(before);
   }
 
+  zoomBy(factor) {
+    this.viewport.measure();
+    this.viewport.zoomAt({ x: this.viewport.width / 2, y: this.viewport.height / 2 }, factor);
+  }
+
+  resetZoom() {
+    this.zoomBy(1 / this.viewport.zoom);
+  }
+
+  // Pans just enough to show a card (or as much of it as fits).
+  ensureVisible(id) {
+    const card = this.elements.get(id);
+
+    if (!card) {
+      return;
+    }
+
+    const margin = 24;
+    const view = this.canvas.getBoundingClientRect();
+    const rect = card.getBoundingClientRect();
+    let dx = 0;
+    let dy = 0;
+
+    if (rect.left < view.left + margin || rect.width > view.width - margin * 2) {
+      dx = view.left + margin - rect.left;
+    } else if (rect.right > view.right - margin) {
+      dx = view.right - margin - rect.right;
+    }
+
+    if (rect.top < view.top + margin || rect.height > view.height - margin * 2) {
+      dy = view.top + margin - rect.top;
+    } else if (rect.bottom > view.bottom - margin) {
+      dy = view.bottom - margin - rect.bottom;
+    }
+
+    if (dx || dy) {
+      this.viewport.panBy(dx, dy);
+    }
+  }
+
+  // When the on-screen keyboard covers the field being edited, pan it up.
+  keepEditorInView() {
+    const field = document.activeElement;
+    const visual = window.visualViewport;
+
+    if (!this.editing || !visual || !(field instanceof HTMLElement) || !this.canvas.contains(field)) {
+      return;
+    }
+
+    const rect = field.getBoundingClientRect();
+    const canvasTop = this.canvas.getBoundingClientRect().top;
+    const bottom = visual.offsetTop + visual.height - 16;
+
+    if (rect.bottom > bottom) {
+      this.viewport.panBy(0, Math.max(bottom - rect.bottom, canvasTop + 16 - rect.top));
+    }
+  }
+
   // Frames every card on the board.
   fitAll() {
     this.viewport.measure();
@@ -724,7 +798,8 @@ export class BoardView {
 
     this.setSelection([id]);
     card.classList.add("is-editing");
-    this.editing = { id, before, ...startEditor(this, item, card, options) };
+    this.editing = { id, before, restoreFocus: Boolean(options.restoreFocus), ...startEditor(this, item, card, options) };
+    requestAnimationFrame(() => this.keepEditorInView());
   }
 
   // One undo step per edit. A new card left empty is removed.
@@ -759,17 +834,22 @@ export class BoardView {
     updateCardElement(card, item);
     this.growToContent(editing.id);
     this.commitChange(editing.before);
+
+    // Editing started from the keyboard: return focus to the card.
+    if (editing.restoreFocus && (!document.activeElement || document.activeElement === document.body)) {
+      card.focus({ preventScroll: true });
+    }
   }
 
-  // Double-click or double-tap on a card.
-  activateCard(id, target) {
+  // Double-click or double-tap on a card, or Enter on a focused card.
+  activateCard(id, target, { restoreFocus = false } = {}) {
     const item = this.items.get(id);
     const element = target instanceof Element ? target : null;
 
     if (item.type === "folder" && !element?.closest(".folder-name")) {
       this.callbacks.onOpenBoard(item.data.childBoardId);
     } else {
-      this.startEditing(id, { focusEntryId: element?.closest(".entry")?.dataset.entryId });
+      this.startEditing(id, { focusEntryId: element?.closest(".entry")?.dataset.entryId, restoreFocus });
     }
   }
 
@@ -781,21 +861,21 @@ export class BoardView {
     if (
       !this.boardId
       || event.button === 2
-      || target?.closest(".card-editor, .card-control, .notice a, .notice button")
+      || target?.closest(".card-editor, .card-control, .canvas-overlay, .notice a, .notice button")
     ) {
       return;
     }
 
     // Suppresses the compatibility mousedown, whose focus change would close
     // an editor opened by this tap. So focus is moved by hand: editing ends,
-    // and fields outside the canvas (the board name) lose focus.
+    // and whatever had focus (a card, the board name field) loses it.
     event.preventDefault();
     this.finishEditing();
     this.menu.close();
 
     const active = document.activeElement;
 
-    if (active instanceof HTMLElement && active !== document.body && !this.canvas.contains(active)) {
+    if (active instanceof HTMLElement && active !== document.body) {
       active.blur();
     }
 
@@ -1349,6 +1429,18 @@ export class BoardView {
     } else if ((key === "f" || key === "F") && !event.shiftKey) {
       event.preventDefault();
       this.fitAll();
+    } else if (key === "+" || key === "=") {
+      event.preventDefault();
+      this.zoomBy(1.25);
+    } else if (key === "-" || key === "_") {
+      event.preventDefault();
+      this.zoomBy(0.8);
+    } else if (key === "0") {
+      event.preventDefault();
+      this.resetZoom();
+    } else if (key === "Enter" && event.target instanceof Element && event.target.classList.contains("card")) {
+      event.preventDefault();
+      this.activateCard(event.target.dataset.id, event.target, { restoreFocus: true });
     } else if (key === "ContextMenu" || (key === "F10" && event.shiftKey)) {
       event.preventDefault();
       this.openMenu();

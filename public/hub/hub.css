@@ -1,6 +1,7 @@
 /* retne hub. Colours follow /styles.css; fonts are standard system fonts only
    (no web fonts). Inline styles are blocked by the hub CSP, so all styling
-   lives here; JS only sets positions and custom properties. */
+   lives here; JS only sets positions and custom properties.
+   theme.js sets data-theme="dark" or "light" on <html> before first paint. */
 
 :root {
   color-scheme: dark;
@@ -13,9 +14,15 @@
   --accent: #d8c59a;
   --label: #8fb855;
   --brand: #99e550;
+  --focus: #99e550;
   --warning: #e0b36a;
   --danger: #e3a7a7;
   --grid-dot: rgba(242, 240, 233, 0.12);
+  --hover: rgba(242, 240, 233, 0.06);
+  --hover-strong: rgba(242, 240, 233, 0.1);
+  --marquee: rgba(216, 197, 154, 0.08);
+  --section-bg: rgba(242, 240, 233, 0.03);
+  --mix-contrast: white;
   --card-bg: #1d1d1a;
   --card-border: rgba(242, 240, 233, 0.1);
   /* Card colour palette: muted tones (keys match the server's palette). */
@@ -28,8 +35,44 @@
   --tone-blue: #222d3f;
   --tone-purple: #31263d;
   --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 18px rgba(0, 0, 0, 0.28);
+  --popup-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
   --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --topbar-height: 56px;
+}
+
+/* Light: the site's warm tones on paper. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f1ea;
+  --surface: #fbfaf6;
+  --text: #1c1b18;
+  --muted: #6b6960;
+  --line: rgba(28, 27, 24, 0.12);
+  --line-strong: rgba(28, 27, 24, 0.26);
+  --accent: #8a6a2b;
+  --label: #3f6d16;
+  --brand: #3a7d0e;
+  --focus: #2f6fd6;
+  --warning: #9a5f00;
+  --danger: #b3261e;
+  --grid-dot: rgba(28, 27, 24, 0.16);
+  --hover: rgba(28, 27, 24, 0.06);
+  --hover-strong: rgba(28, 27, 24, 0.1);
+  --marquee: rgba(138, 106, 43, 0.1);
+  --section-bg: rgba(28, 27, 24, 0.035);
+  --mix-contrast: black;
+  --card-bg: #ffffff;
+  --card-border: rgba(28, 27, 24, 0.12);
+  --tone-grey: #ebeae4;
+  --tone-red: #f7ddd8;
+  --tone-orange: #f8e5d0;
+  --tone-yellow: #f6eec6;
+  --tone-green: #deedd3;
+  --tone-teal: #d4ebe7;
+  --tone-blue: #dae4f4;
+  --tone-purple: #e8def4;
+  --card-shadow: 0 1px 2px rgba(28, 27, 24, 0.12), 0 6px 18px rgba(28, 27, 24, 0.08);
+  --popup-shadow: 0 12px 32px rgba(28, 27, 24, 0.18);
 }
 
 * {
@@ -49,6 +92,7 @@ body {
 body {
   display: flex;
   flex-direction: column;
+  height: 100dvh;
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
@@ -188,6 +232,69 @@ button.crumb-current {
   color: var(--danger);
 }
 
+.topbar-actions {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: -6px;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.icon-button:hover,
+.icon-button[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.icon-button:active {
+  background: var(--hover-strong);
+}
+
+.icon-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-button .icon-fill {
+  fill: currentColor;
+  stroke: none;
+}
+
+.theme-toggle svg {
+  display: none;
+}
+
+.theme-toggle[data-choice="system"] [data-icon="system"],
+.theme-toggle[data-choice="light"] [data-icon="light"],
+.theme-toggle[data-choice="dark"] [data-icon="dark"] {
+  display: block;
+}
+
+.app-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+}
+
 /* ---- Toolbar (left on desktop, bottom on phones) -------------------------- */
 
 .workspace {
@@ -241,7 +348,7 @@ button.crumb-current {
 }
 
 .tool:hover:not(:disabled) {
-  background: rgba(242, 240, 233, 0.06);
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -306,11 +413,44 @@ button.crumb-current {
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 
+/* Zoom out, zoom level (resets to 100%), zoom in, fit all. */
+.zoom-controls {
+  position: absolute;
+  z-index: 3;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 3px;
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+}
+
+.zoom-level {
+  min-width: 52px;
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.zoom-level:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
 .marquee {
   position: absolute;
   z-index: 2;
   border: 1px solid var(--accent);
-  background: rgba(216, 197, 154, 0.08);
+  background: var(--marquee);
   pointer-events: none;
 }
 
@@ -388,6 +528,16 @@ button.crumb-current {
 .card.is-selected {
   outline: calc(2px / var(--zoom, 1)) solid var(--accent);
   outline-offset: calc(1px / var(--zoom, 1));
+}
+
+/* Cards take keyboard focus (Tab); the ring differs from the selection. */
+.card:focus {
+  outline: none;
+}
+
+.card:focus-visible {
+  outline: calc(3px / var(--zoom, 1)) solid var(--focus);
+  outline-offset: calc(3px / var(--zoom, 1));
 }
 
 .card-control:focus-visible {
@@ -771,14 +921,14 @@ button.crumb-current {
 .card-section {
   border: 1px dashed var(--line-strong);
   border-radius: 12px;
-  background: rgba(242, 240, 233, 0.03);
+  background: var(--section-bg);
   box-shadow: none;
   pointer-events: none;
 }
 
 .card-section[data-color] {
   border-style: solid;
-  border-color: color-mix(in srgb, var(--card-bg), white 14%);
+  border-color: color-mix(in srgb, var(--card-bg), var(--mix-contrast) 14%);
   background: color-mix(in srgb, var(--card-bg) 60%, transparent);
 }
 
@@ -813,6 +963,10 @@ button.crumb-current {
 
 .card-menu {
   position: fixed;
+}
+
+.card-menu,
+.app-menu {
   z-index: 100;
   display: flex;
   flex-direction: column;
@@ -822,7 +976,7 @@ button.crumb-current {
   border-radius: 10px;
   padding: 6px;
   background: var(--surface);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--popup-shadow);
 }
 
 .menu-swatches {
@@ -896,7 +1050,7 @@ button.crumb-current {
 .menu-item:hover,
 .menu-size:hover,
 .menu-item:focus-visible {
-  background: rgba(242, 240, 233, 0.08);
+  background: var(--hover-strong);
 }
 
 .menu-hint {
@@ -935,7 +1089,7 @@ button.crumb-current {
   border-radius: 10px;
   padding: 10px 16px;
   background: var(--surface);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--popup-shadow);
   color: var(--text);
   font-size: 0.9rem;
   transform: translateX(-50%);
@@ -986,7 +1140,12 @@ button.crumb-current {
   }
 
   .toast {
-    bottom: calc(72px + env(safe-area-inset-bottom));
+    bottom: calc(132px + env(safe-area-inset-bottom));
+  }
+
+  .zoom-controls {
+    right: 8px;
+    bottom: 8px;
   }
 }
 
@@ -996,13 +1155,57 @@ button.crumb-current {
   }
 
   .topbar {
-    gap: 0.75rem;
+    gap: 0.5rem;
+    padding-right: max(0.5rem, env(safe-area-inset-right));
   }
 
   .breadcrumb a,
   .crumb-current {
-    max-width: 9rem;
+    max-width: 8rem;
   }
+
+  /* Only problems get words on a narrow top bar; "Saved" becomes a dot. */
+  .save-status[data-state="saved"],
+  .save-status[data-state="saving"] {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    color: transparent;
+  }
+
+  .save-status[data-state="saving"] {
+    background: var(--accent);
+  }
+}
+
+/* Touch: bigger targets, and 16px text in fields so iOS doesn't zoom the page. */
+@media (pointer: coarse) {
+  .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .canvas .entry-editor,
+  .canvas .checklist-title-editor,
+  .canvas .caption-editor,
+  .canvas .section-title-editor,
+  .canvas .folder-name-editor,
+  .canvas .link-editor input,
+  .canvas .note-s .note-editor,
+  .crumb-editor {
+    font-size: 16px;
+  }
+}
+
+.noscript {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -131,9 +131,37 @@ const STRUCTURE = {
   folder: () => [folderIcon(), el("div", "folder-name")]
 };
 
+// What a screen reader announces for a focused card.
+function describe(item) {
+  const { data } = item;
+
+  switch (item.type) {
+    case "note":
+      return `Note: ${data.text.trim().slice(0, 80) || "empty"}`;
+    case "checklist": {
+      const done = data.entries.filter((entry) => entry.done).length;
+      return `Checklist${data.title ? ` ${data.title}` : ""}: ${done} of ${data.entries.length} done`;
+    }
+    case "image":
+      return `Image${data.caption ? `: ${data.caption}` : ""}`;
+    case "link":
+      return `Link: ${data.title || hostname(data.url)}`;
+    case "section":
+      return `Section: ${data.title || "untitled"}`;
+    case "folder":
+      return `Folder: ${data.name}. Press Enter to open.`;
+    default:
+      return "Card";
+  }
+}
+
+// Cards take keyboard focus: Tab moves between them, Enter edits or opens.
 export function createCardElement(item) {
   const card = el("div", `card card-${item.type}`);
   card.dataset.id = item.id;
+  card.tabIndex = 0;
+  card.setAttribute("role", "group");
+  card.setAttribute("aria-roledescription", "card");
   card.append(...STRUCTURE[item.type]());
 
   const handle = el("div", "resize-handle");
@@ -301,6 +329,7 @@ export function updateCardElement(card, item) {
 
   if (rendered.get(card) !== key) {
     RENDERERS[item.type](card, item);
+    card.setAttribute("aria-label", describe(item));
     rendered.set(card, key);
   }
 }
