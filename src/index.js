@@ -1,3 +1,5 @@
+import { handleHub, isHubPath } from "./hub/index.js";
+
 const ALLOWED_ORIGINS = new Set([
   "https://retne.games",
   "https://www.retne.games",
@@ -70,26 +72,39 @@ async function verifyTurnstile(token, secret, ip, expectedHostname) {
   );
 }
 
-function securityHeaders(response) {
+const SITE_CSP = [
+  "default-src 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "img-src 'self' data:",
+  "style-src 'self'",
+  "font-src 'self'",
+  "script-src 'self' https://challenges.cloudflare.com",
+  "frame-src https://challenges.cloudflare.com",
+  "connect-src 'self' https://challenges.cloudflare.com",
+  "upgrade-insecure-requests"
+].join("; ");
+
+// retne hub (docs/hub-spec.md, section 8): same-origin only, no third parties.
+const HUB_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src 'self' blob: data:",
+  "connect-src 'self'",
+  "font-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'"
+].join("; ");
+
+function securityHeaders(response, csp = SITE_CSP) {
   const headers = new Headers(response.headers);
 
-  headers.set(
-    "Content-Security-Policy",
-    [
-      "default-src 'self'",
-      "base-uri 'none'",
-      "object-src 'none'",
-      "frame-ancestors 'none'",
-      "form-action 'self'",
-      "img-src 'self' data:",
-      "style-src 'self'",
-      "font-src 'self'",
-      "script-src 'self' https://challenges.cloudflare.com",
-      "frame-src https://challenges.cloudflare.com",
-      "connect-src 'self' https://challenges.cloudflare.com",
-      "upgrade-insecure-requests"
-    ].join("; ")
-  );
+  headers.set("Content-Security-Policy", csp);
 
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("X-Content-Type-Options", "nosniff");
@@ -283,6 +298,10 @@ export default {
       }
 
       return json({ success: true }, 200, origin);
+    }
+
+    if (isHubPath(url.pathname)) {
+      return securityHeaders(await handleHub(request, env, url), HUB_CSP);
     }
 
     const response = await env.ASSETS.fetch(request);

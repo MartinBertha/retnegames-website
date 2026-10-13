@@ -64,6 +64,29 @@ Run:
 
 Then open the local URL shown by Wrangler.
 
+## retne hub (`/hub`)
+
+A private canvas app at `https://retne.games/hub/`. The full specification is in `docs/hub-spec.md`.
+
+- `src/hub/`: Access token check (`auth.js`), API (`api.js`), helpers (`http.js`), entry point (`index.js`)
+- `public/hub/`: the app (plain ES modules, no build step)
+- `migrations/`: D1 schema for the `retne-hub` database
+- `test/`: checks for the token verification, run with `npm test`
+
+Cloudflare Access protects `/hub` at the edge. The Worker also verifies the Access token on every `/hub` request and returns 403 when it fails. `run_worker_first: true` in `wrangler.jsonc` sends every request to the Worker before the asset server. Without it, static files skip the Worker, its security headers and the hub's token check.
+
+Local development:
+
+1. `npx wrangler d1 migrations apply retne-hub --local`
+2. `npx wrangler dev --var DEV_AUTH_BYPASS:true`
+3. Open `http://localhost:8787/hub/`
+
+The bypass only works on `localhost` and `127.0.0.1`. Pass it on the command line: because `wrangler.jsonc` lists `secrets.required`, Wrangler ignores any other keys in `.dev.vars`. Never add it to `wrangler.jsonc`.
+
+Apply schema changes to the real database (shared by production and staging) before uploading code that needs them:
+
+`npx wrangler d1 migrations apply retne-hub --remote`
+
 ## Existing project warning
 
 If you already have a working `wrangler.jsonc`, merge the `assets`, `send_email`, `ratelimits`, and `secrets` sections into your existing configuration rather than blindly replacing unrelated configuration.

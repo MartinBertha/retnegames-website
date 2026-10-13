@@ -1,0 +1,210 @@
+/* retne hub. Colours and fonts follow /styles.css. Inline styles are blocked by
+   the hub CSP, so all styling lives here; JS only sets custom properties. */
+
+/* Perfect DOS VGA 437 renders sharp only at multiples of 16px. */
+@font-face {
+  font-family: "Perfect DOS VGA 437";
+  src: url("/fonts/PerfectDOSVGA437.woff2") format("woff2");
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  --bg: #0b0b0a;
+  --surface: #11110f;
+  --text: #f2f0e9;
+  --muted: #9b9a94;
+  --line: rgba(242, 240, 233, 0.14);
+  --line-strong: rgba(242, 240, 233, 0.28);
+  --accent: #d8c59a;
+  --label: #8fb855;
+  --brand: #99e550;
+  --grid-dot: rgba(242, 240, 233, 0.12);
+  --font-dos: "Perfect DOS VGA 437", ui-monospace, monospace;
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --topbar-height: 56px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  height: var(--topbar-height);
+  padding: 0 max(1rem, env(safe-area-inset-right)) 0 max(1rem, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+/* Fixed labels only: the DOS font maps some Unicode punctuation (curly quotes,
+   "…", "›") to the wrong CP437 glyphs, so user-typed names use the sans font. */
+.brand {
+  flex: none;
+  color: var(--brand);
+  font-family: var(--font-dos);
+  font-size: 16px;
+  font-weight: 400;
+  font-synthesis: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.breadcrumb {
+  min-width: 0;
+  font-size: 0.95rem;
+}
+
+.breadcrumb ol {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.breadcrumb li {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.breadcrumb li + li::before {
+  content: "›";
+  flex: none;
+  padding: 0 0.6rem;
+  color: var(--muted);
+}
+
+.breadcrumb a,
+.breadcrumb [aria-current] {
+  display: block;
+  max-width: 16rem;
+  overflow: hidden;
+  line-height: 44px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breadcrumb a {
+  color: var(--label);
+  text-decoration: none;
+}
+
+.breadcrumb a:hover {
+  color: var(--brand);
+}
+
+.breadcrumb [aria-current] {
+  color: var(--text);
+}
+
+/* The dot grid; JS adjusts --grid-size and --grid-x/y with pan and zoom. */
+.canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.5px);
+  background-size: var(--grid-size, 24px) var(--grid-size, 24px);
+  background-position: var(--grid-x, 0) var(--grid-y, 0);
+}
+
+.notice {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  color: var(--muted);
+  text-align: center;
+  pointer-events: none;
+}
+
+.notice > * {
+  margin: 0;
+  pointer-events: auto;
+}
+
+.notice-title {
+  color: var(--text);
+  font-size: 1.15rem;
+}
+
+.notice-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  border: 1px solid var(--text);
+  border-radius: 999px;
+  padding: 0 1.5rem;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-decoration: none;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.notice-action:hover {
+  background: var(--text);
+  color: var(--bg);
+}
+
+@media (max-width: 520px) {
+  .brand {
+    display: none;
+  }
+
+  .breadcrumb a,
+  .breadcrumb [aria-current] {
+    max-width: 9rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

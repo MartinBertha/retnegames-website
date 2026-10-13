@@ -15,7 +15,36 @@
 
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    // Every request goes through the Worker first, so all pages get the
+    // security headers and CSP, and /hub can verify the Access token.
+    // Without this, static files are served directly and get neither.
+    "run_worker_first": true
+  },
+
+  // retne hub (docs/hub-spec.md). Edit by hand: letting wrangler rewrite this
+  // file would strip the comments above.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "retne-hub",
+      "database_id": "63201bfd-dc68-4989-a3bc-64695874662f",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "retne-hub-files"
+    }
+  ],
+
+  // Not secrets. ACCESS_AUDIENCES is a comma-separated list of Access AUD tags.
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "sweet-brook-c60e.cloudflareaccess.com",
+    "ACCESS_AUDIENCES": "f11069c640f2bbc86a83824c2de26e1205b137accd60c0f606ef4d3c5cda420f",
+    "HUB_ALLOWED_EMAILS": "admin@retne.games"
   },
 
   "ratelimits": [
