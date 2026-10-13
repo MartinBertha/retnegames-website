@@ -7,12 +7,14 @@ export class ApiError extends Error {
   }
 }
 
-async function request(method, path, body) {
+// keepalive lets a save finish while the page is being hidden or closed.
+async function request(method, path, body, { keepalive = false } = {}) {
   const init = {
     method,
     headers: { Accept: "application/json" },
     credentials: "same-origin",
     cache: "no-store",
+    keepalive,
     // An expired Access session answers with a redirect to the login page.
     redirect: "manual"
   };
@@ -50,6 +52,7 @@ export const api = {
   getBoard: (id) => request("GET", boardPath(id)),
   getBoardRev: (id) => request("GET", `${boardPath(id)}/rev`),
   createBoard: (board) => request("POST", "/boards", board),
-  updateBoard: (id, changes) => request("PATCH", boardPath(id), changes),
-  deleteBoard: (id) => request("DELETE", boardPath(id))
+  updateBoard: (id, changes, options) => request("PATCH", boardPath(id), changes, options),
+  deleteBoard: (id) => request("DELETE", boardPath(id)),
+  saveChanges: (id, ops, options) => request("POST", `${boardPath(id)}/changes`, { ops }, options)
 };

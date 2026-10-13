@@ -16,10 +16,30 @@
     <nav class="breadcrumb" aria-label="Breadcrumb">
       <ol id="breadcrumb"></ol>
     </nav>
+    <p id="save-status" class="save-status" role="status" aria-live="polite"></p>
   </header>
 
-  <main id="canvas" class="canvas" aria-label="Board">
-    <div id="notice" class="notice" role="status" aria-live="polite"></div>
-  </main>
+  <div class="workspace">
+    <nav class="toolbar" aria-label="Add cards">
+      <button type="button" id="add-note" class="tool">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+        <span>Note</span>
+      </button>
+      <button type="button" id="add-folder" class="tool">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span>Folder</span>
+      </button>
+      <span class="toolbar-gap" aria-hidden="true"></span>
+      <button type="button" id="delete-selection" class="tool" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
+        <span>Delete</span>
+      </button>
+    </nav>
+
+    <main id="canvas" class="canvas" aria-label="Board canvas">
+      <div id="world" class="world"></div>
+      <div id="notice" class="notice" role="status" aria-live="polite"></div>
+    </main>
+  </div>
 </body>
 </html>

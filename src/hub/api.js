@@ -1,4 +1,4 @@
-// Hub API under /hub/api (docs/hub-spec.md, section 5). Boards endpoints.
+// Hub API under /hub/api (docs/hub-spec.md, section 5): boards and card changes.
 // All SQL uses prepared statements with bound parameters.
 
 import {
@@ -10,22 +10,16 @@ import {
   json,
   readJson
 } from "./http.js";
+import { cleanName, isPlainObject, isUuid, validateItem } from "./validate.js";
 
 const ROOT_BOARD_NAME = "Home";
-const MAX_NAME_LENGTH = 100;
 const MAX_SMALL_BODY_BYTES = 4 * 1024;
+const MAX_CHANGES_BODY_BYTES = 256 * 1024;
+const MAX_OPS_PER_REQUEST = 100;
+const MAX_ITEMS_PER_BOARD = 2_000;
 const MAX_VIEW_COORDINATE = 2_000_000;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-function isPlainObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-export function isUuid(value) {
-  return typeof value === "string" && UUID_PATTERN.test(value);
-}
 
 function boardIdParam(value) {
   if (!isUuid(value)) {
@@ -35,19 +29,12 @@ function boardIdParam(value) {
   return value;
 }
 
-// Names are single-line plain text: control characters become spaces.
-export function cleanName(value) {
-  if (typeof value !== "string") {
-    throw new HttpError(400, "Name must be text.");
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
   }
-
-  const name = value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
-
-  if (!name || name.length > MAX_NAME_LENGTH) {
-    throw new HttpError(400, `Name must be 1 to ${MAX_NAME_LENGTH} characters.`);
-  }
-
-  return name;
 }
 
 function viewNumber(value, min, max) {
@@ -310,6 +297,38 @@ async function createBoard({ request, env }) {
   throw new HttpError(409, "A board with this id already exists.");
 }
 
+// Soft-deletes a (non-root) board and all its live descendants, stamped with
+// one deleted_at so restoreSubtree can bring back exactly that set.
+function deleteSubtree(env, boardId, now) {
+  return env.DB.prepare(
+    `WITH RECURSIVE subtree(id, depth) AS (
+       SELECT id, 0 FROM boards
+       WHERE id = ?1 AND deleted_at IS NULL AND parent_id IS NOT NULL
+       UNION ALL
+       SELECT b.id, s.depth + 1
+       FROM boards b JOIN subtree s ON b.parent_id = s.id
+       WHERE b.deleted_at IS NULL AND s.depth < 1000
+     )
+     UPDATE boards SET deleted_at = ?2, updated_at = ?2
+     WHERE id IN (SELECT id FROM subtree)`
+  ).bind(boardId, now);
+}
+
+// Undoes deleteSubtree: restores the board and the descendants deleted with it.
+function restoreSubtree(env, boardId, deletedAt, now) {
+  return env.DB.prepare(
+    `WITH RECURSIVE subtree(id, depth) AS (
+       SELECT id, 0 FROM boards WHERE id = ?1 AND deleted_at = ?2
+       UNION ALL
+       SELECT b.id, s.depth + 1
+       FROM boards b JOIN subtree s ON b.parent_id = s.id
+       WHERE b.deleted_at = ?2 AND s.depth < 1000
+     )
+     UPDATE boards SET deleted_at = NULL, updated_at = ?3
+     WHERE id IN (SELECT id FROM subtree)`
+  ).bind(boardId, deletedAt, now);
+}
+
 // DELETE /boards/:id. Soft-deletes the board, its descendants and its folder card.
 async function deleteBoard({ env, params }) {
   const id = boardIdParam(params[0]);
@@ -329,18 +348,7 @@ async function deleteBoard({ env, params }) {
   const now = Date.now();
 
   await env.DB.batch([
-    env.DB.prepare(
-      `WITH RECURSIVE subtree(id, depth) AS (
-         SELECT id, 0 FROM boards
-         WHERE id = ?1 AND deleted_at IS NULL AND parent_id IS NOT NULL
-         UNION ALL
-         SELECT b.id, s.depth + 1
-         FROM boards b JOIN subtree s ON b.parent_id = s.id
-         WHERE b.deleted_at IS NULL AND s.depth < 1000
-       )
-       UPDATE boards SET deleted_at = ?2, updated_at = ?2
-       WHERE id IN (SELECT id FROM subtree)`
-    ).bind(id, now),
+    deleteSubtree(env, id, now),
     env.DB.prepare(
       `UPDATE items SET deleted_at = ?3, updated_at = ?3
        WHERE board_id = ?2 AND type = 'folder' AND deleted_at IS NULL
@@ -354,10 +362,230 @@ async function deleteBoard({ env, params }) {
   return json({ ok: true });
 }
 
+function parseOps(body) {
+  if (
+    !isPlainObject(body)
+    || !Array.isArray(body.ops)
+    || body.ops.length === 0
+    || body.ops.length > MAX_OPS_PER_REQUEST
+  ) {
+    throw new HttpError(400, `Send 1 to ${MAX_OPS_PER_REQUEST} changes.`);
+  }
+
+  const upserts = new Map();
+  const deletes = new Set();
+
+  for (const op of body.ops) {
+    let id;
+
+    if (op?.op === "upsert") {
+      const item = validateItem(op.item);
+      id = item.id;
+
+      if (upserts.has(id) || deletes.has(id)) {
+        throw new HttpError(400, "The same card appears twice.");
+      }
+
+      upserts.set(id, item);
+    } else if (op?.op === "delete" && isUuid(op.id)) {
+      id = op.id;
+
+      if (upserts.has(id) || deletes.has(id)) {
+        throw new HttpError(400, "The same card appears twice.");
+      }
+
+      deletes.add(id);
+    } else {
+      throw new HttpError(400, "Invalid change.");
+    }
+  }
+
+  return { upserts, deletes };
+}
+
+// POST /boards/:id/changes { ops: [{ op: "upsert", item }, { op: "delete", id }] }
+// One D1 batch (a transaction). Per-card last write wins; bumps the board's rev.
+// Folder cards keep their child board in step: created, renamed, deleted and
+// restored together with the card.
+async function applyChanges({ request, env, params }) {
+  const boardId = boardIdParam(params[0]);
+  const { upserts, deletes } = parseOps(await readJson(request, MAX_CHANGES_BODY_BYTES));
+
+  const childList = [...upserts.values()]
+    .filter((item) => item.type === "folder")
+    .map((item) => item.data.childBoardId);
+
+  if (new Set(childList).size !== childList.length) {
+    throw new HttpError(409, "That folder's board is already used by another card.");
+  }
+
+  const ids = JSON.stringify([...upserts.keys(), ...deletes]);
+  const childIds = JSON.stringify(childList);
+
+  const [boardResult, existingResult, countResult, childResult, linkResult] = await env.DB.batch([
+    env.DB.prepare(
+      "SELECT id FROM boards WHERE id = ?1 AND deleted_at IS NULL"
+    ).bind(boardId),
+    env.DB.prepare(
+      `SELECT id, board_id, type, data, deleted_at
+       FROM items WHERE id IN (SELECT value FROM json_each(?1))`
+    ).bind(ids),
+    env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM items WHERE board_id = ?1 AND deleted_at IS NULL"
+    ).bind(boardId),
+    env.DB.prepare(
+      `SELECT id, parent_id, deleted_at
+       FROM boards WHERE id IN (SELECT value FROM json_each(?1))`
+    ).bind(childIds),
+    env.DB.prepare(
+      `SELECT id, json_extract(data, '$.childBoardId') AS child_id
+       FROM items
+       WHERE type = 'folder' AND deleted_at IS NULL
+         AND json_extract(data, '$.childBoardId') IN (SELECT value FROM json_each(?1))`
+    ).bind(childIds)
+  ]);
+
+  if (!boardResult.results.length) {
+    throw new HttpError(404, "Board not found.");
+  }
+
+  const existing = new Map(existingResult.results.map((row) => [row.id, row]));
+  let liveCount = countResult.results[0].count;
+
+  for (const item of upserts.values()) {
+    const row = existing.get(item.id);
+
+    if (row && row.board_id !== boardId) {
+      throw new HttpError(409, "That card belongs to another board.");
+    }
+
+    if (row && row.type !== item.type) {
+      throw new HttpError(400, "A card's type can't change.");
+    }
+
+    if (
+      row
+      && item.type === "folder"
+      && parseJson(row.data)?.childBoardId !== item.data.childBoardId
+    ) {
+      throw new HttpError(400, "A folder's board can't change.");
+    }
+
+    if (!row || row.deleted_at !== null) {
+      liveCount++;
+    }
+  }
+
+  // Deleting a card that is already gone (or never saved) is a no-op.
+  const deletions = [...deletes].filter((id) => {
+    const row = existing.get(id);
+    return row && row.board_id === boardId && row.deleted_at === null;
+  });
+
+  liveCount -= deletions.length;
+
+  if (liveCount > MAX_ITEMS_PER_BOARD) {
+    throw new HttpError(400, `A board can hold at most ${MAX_ITEMS_PER_BOARD.toLocaleString("en")} cards.`);
+  }
+
+  // A child board belongs to exactly one live folder card.
+  for (const link of linkResult.results) {
+    const item = upserts.get(link.id);
+
+    if (item?.data.childBoardId !== link.child_id && !deletes.has(link.id)) {
+      throw new HttpError(409, "That folder's board is already used by another card.");
+    }
+  }
+
+  const children = new Map(childResult.results.map((row) => [row.id, row]));
+  const now = Date.now();
+  const statements = [];
+
+  for (const item of upserts.values()) {
+    if (item.type !== "folder") {
+      continue;
+    }
+
+    const { childBoardId, name } = item.data;
+    const child = children.get(childBoardId);
+
+    if (!child) {
+      statements.push(env.DB.prepare(
+        `INSERT INTO boards (id, parent_id, name, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)`
+      ).bind(childBoardId, boardId, name, now));
+      continue;
+    }
+
+    if (child.parent_id !== boardId) {
+      throw new HttpError(409, "That folder's board belongs elsewhere.");
+    }
+
+    if (child.deleted_at !== null) {
+      statements.push(restoreSubtree(env, childBoardId, child.deleted_at, now));
+    }
+
+    statements.push(env.DB.prepare(
+      `UPDATE boards SET name = ?2, rev = rev + 1, updated_at = ?3
+       WHERE id = ?1 AND name <> ?2`
+    ).bind(childBoardId, name, now));
+  }
+
+  for (const id of deletions) {
+    const row = existing.get(id);
+    const childBoardId = row.type === "folder" ? parseJson(row.data)?.childBoardId : null;
+
+    if (isUuid(childBoardId)) {
+      statements.push(deleteSubtree(env, childBoardId, now));
+    }
+  }
+
+  if (upserts.size) {
+    const rows = [...upserts.values()].map(({ id, type, x, y, w, h, z, color, dataJson }) => (
+      { id, type, x, y, w, h, z, color, data: dataJson }
+    ));
+
+    statements.push(env.DB.prepare(
+      `INSERT INTO items (id, board_id, type, x, y, w, h, z, color, data, created_at, updated_at, deleted_at)
+       SELECT json_extract(value, '$.id'), ?1, json_extract(value, '$.type'),
+              json_extract(value, '$.x'), json_extract(value, '$.y'),
+              json_extract(value, '$.w'), json_extract(value, '$.h'),
+              json_extract(value, '$.z'), json_extract(value, '$.color'),
+              json_extract(value, '$.data'), ?2, ?2, NULL
+       FROM json_each(?3) WHERE true
+       ON CONFLICT(id) DO UPDATE SET
+         x = excluded.x, y = excluded.y, w = excluded.w, h = excluded.h,
+         z = excluded.z, color = excluded.color, data = excluded.data,
+         updated_at = excluded.updated_at, deleted_at = NULL
+       WHERE items.board_id = excluded.board_id`
+    ).bind(boardId, now, JSON.stringify(rows)));
+  }
+
+  if (deletions.length) {
+    statements.push(env.DB.prepare(
+      `UPDATE items SET deleted_at = ?2, updated_at = ?2
+       WHERE board_id = ?1 AND deleted_at IS NULL
+         AND id IN (SELECT value FROM json_each(?3))`
+    ).bind(boardId, now, JSON.stringify(deletions)));
+  }
+
+  statements.push(
+    env.DB.prepare(
+      "UPDATE boards SET rev = rev + 1, updated_at = ?2 WHERE id = ?1"
+    ).bind(boardId, now),
+    env.DB.prepare("SELECT rev FROM boards WHERE id = ?1").bind(boardId)
+  );
+
+  const results = await env.DB.batch(statements);
+
+  return json({ rev: results[results.length - 1].results[0].rev });
+}
+
 const ROUTES = [
   { pattern: /^\/boards$/, methods: { GET: listBoards, POST: createBoard } },
   { pattern: /^\/boards\/([^/]+)$/, methods: { GET: getBoard, PATCH: updateBoard, DELETE: deleteBoard } },
-  { pattern: /^\/boards\/([^/]+)\/rev$/, methods: { GET: getBoardRev } }
+  { pattern: /^\/boards\/([^/]+)\/rev$/, methods: { GET: getBoardRev } },
+  { pattern: /^\/boards\/([^/]+)\/changes$/, methods: { POST: applyChanges } }
 ];
 
 export async function handleApi(request, env, url) {

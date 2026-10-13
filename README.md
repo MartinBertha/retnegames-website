@@ -73,6 +73,8 @@ A private canvas app at `https://retne.games/hub/`. The full specification is in
 - `migrations/`: D1 schema for the `retne-hub` database
 - `test/`: checks for the token verification, run with `npm test`
 
+Controls: drag empty canvas to pan (also Space+drag or the middle button), Shift+drag to select several cards, wheel or pinch to zoom. Double-click (double-tap on touch) to edit a card, open a folder, rename a folder by its name, or add a note on empty canvas. Click the current board name in the breadcrumb to rename it. Changes save automatically.
+
 Cloudflare Access protects `/hub` at the edge. The Worker also verifies the Access token on every `/hub` request and returns 403 when it fails. `run_worker_first: true` in `wrangler.jsonc` sends every request to the Worker before the asset server. Without it, static files skip the Worker, its security headers and the hub's token check.
 
 Local development:
