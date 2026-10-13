@@ -1,4 +1,5 @@
-// Hub API under /hub/api (docs/hub-spec.md, section 5): boards and card changes.
+// Hub API under /hub/api (docs/hub-spec.md, section 5): boards, card changes
+// and images (files.js).
 // All SQL uses prepared statements with bound parameters.
 
 import {
@@ -10,6 +11,7 @@ import {
   json,
   readJson
 } from "./http.js";
+import { getFile, uploadFile } from "./files.js";
 import { cleanName, isPlainObject, isUuid, validateItem } from "./validate.js";
 
 const ROOT_BOARD_NAME = "Home";
@@ -421,8 +423,11 @@ async function applyChanges({ request, env, params }) {
 
   const ids = JSON.stringify([...upserts.keys(), ...deletes]);
   const childIds = JSON.stringify(childList);
+  const fileIds = [...new Set(
+    [...upserts.values()].filter((item) => item.type === "image").map((item) => item.data.fileId)
+  )];
 
-  const [boardResult, existingResult, countResult, childResult, linkResult] = await env.DB.batch([
+  const [boardResult, existingResult, countResult, childResult, linkResult, fileResult] = await env.DB.batch([
     env.DB.prepare(
       "SELECT id FROM boards WHERE id = ?1 AND deleted_at IS NULL"
     ).bind(boardId),
@@ -442,11 +447,18 @@ async function applyChanges({ request, env, params }) {
        FROM items
        WHERE type = 'folder' AND deleted_at IS NULL
          AND json_extract(data, '$.childBoardId') IN (SELECT value FROM json_each(?1))`
-    ).bind(childIds)
+    ).bind(childIds),
+    env.DB.prepare(
+      "SELECT id FROM files WHERE id IN (SELECT value FROM json_each(?1))"
+    ).bind(JSON.stringify(fileIds))
   ]);
 
   if (!boardResult.results.length) {
     throw new HttpError(404, "Board not found.");
+  }
+
+  if (fileResult.results.length !== fileIds.length) {
+    throw new HttpError(400, "Image not found. Upload it first.");
   }
 
   const existing = new Map(existingResult.results.map((row) => [row.id, row]));
@@ -585,17 +597,24 @@ const ROUTES = [
   { pattern: /^\/boards$/, methods: { GET: listBoards, POST: createBoard } },
   { pattern: /^\/boards\/([^/]+)$/, methods: { GET: getBoard, PATCH: updateBoard, DELETE: deleteBoard } },
   { pattern: /^\/boards\/([^/]+)\/rev$/, methods: { GET: getBoardRev } },
-  { pattern: /^\/boards\/([^/]+)\/changes$/, methods: { POST: applyChanges } }
+  { pattern: /^\/boards\/([^/]+)\/changes$/, methods: { POST: applyChanges } },
+  { pattern: /^\/files$/, methods: { POST: uploadFile } },
+  { pattern: /^\/files\/([^/]+)$/, methods: { GET: getFile } }
 ];
 
 export async function handleApi(request, env, url) {
   try {
+    const path = url.pathname.slice("/hub/api".length);
+
+    // Every change needs the hub's own Origin. Bodies are JSON, except image
+    // uploads, which uploadFile checks itself.
     if (isMutation(request.method)) {
       checkSameOrigin(request, url);
-      checkJsonContentType(request);
-    }
 
-    const path = url.pathname.slice("/hub/api".length);
+      if (!(request.method === "POST" && path === "/files")) {
+        checkJsonContentType(request);
+      }
+    }
 
     for (const route of ROUTES) {
       const match = route.pattern.exec(path);

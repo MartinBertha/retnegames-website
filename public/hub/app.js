@@ -4,12 +4,18 @@
 
 import { api, ApiError } from "./api.js";
 import { BoardView } from "./board.js";
+import { httpUrl } from "./cards.js";
+import { IMAGE_ACCEPT, imageFileProblem, prepareImage } from "./images.js";
 import { Saver } from "./saver.js";
+import { hideToast, showToast } from "./toast.js";
 
 const breadcrumb = document.getElementById("breadcrumb");
 const notice = document.getElementById("notice");
 const saveStatus = document.getElementById("save-status");
-const deleteButton = document.getElementById("delete-selection");
+const canvas = document.getElementById("canvas");
+const undoButton = document.getElementById("undo");
+const redoButton = document.getElementById("redo");
+const imageInput = document.getElementById("image-input");
 
 const BOARD_HASH = /^#\/b\/([0-9a-f-]{36})$/;
 const REV_POLL_MS = 15_000;
@@ -54,18 +60,23 @@ const saver = new Saver({
 });
 
 const view = new BoardView(
-  document.getElementById("canvas"),
+  canvas,
   document.getElementById("world"),
   {
     onOps: (boardId, ops) => saver.queue(boardId, ops),
     onOpenBoard: (id) => {
       window.location.hash = `#/b/${id}`;
     },
-    onSelectionChange: (count) => {
-      deleteButton.disabled = count === 0;
-    },
     onViewChange: scheduleViewSave,
-    onItemsChange: showEmptyHint
+    onItemsChange: showEmptyHint,
+    onHistoryChange: (history) => {
+      undoButton.disabled = !history.canUndo;
+      redoButton.disabled = !history.canRedo;
+    },
+    onFoldersDeleted: (names) => {
+      const what = names.length === 1 ? `Folder "${names[0]}"` : `${names.length} folders`;
+      showToast(`${what} deleted with everything in it. Press Undo to restore.`, { timeout: 7000 });
+    }
   }
 );
 
@@ -440,11 +451,180 @@ function saveView({ keepalive = false } = {}) {
   });
 }
 
-// ---- Toolbar and page events -----------------------------------------------
+// ---- Adding cards: toolbar, image files, drag-drop and paste ---------------
 
-document.getElementById("add-note").addEventListener("click", () => view.createCardInView("note"));
-document.getElementById("add-folder").addEventListener("click", () => view.createCardInView("folder"));
-deleteButton.addEventListener("click", () => view.deleteSelected());
+const MAX_NOTE_LENGTH = 20_000;
+const MAX_URL_LENGTH = 2_048;
+const DROP_OFFSET = 32;
+
+function isTextTarget(target) {
+  return target instanceof Element
+    && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
+// Uploads images one at a time; each becomes a card near `point`. Problems
+// are collected and shown together at the end.
+async function addImages(files, point) {
+  const boardId = view.boardId;
+  const problems = [];
+  const images = files.filter((file) => {
+    const problem = imageFileProblem(file);
+
+    if (problem) {
+      problems.push(problem);
+    }
+
+    return !problem;
+  });
+
+  for (const [index, file] of images.entries()) {
+    showToast(
+      images.length > 1 ? `Uploading image ${index + 1} of ${images.length}…` : "Uploading image…",
+      { timeout: 0 }
+    );
+
+    try {
+      const prepared = await prepareImage(file);
+      const uploaded = await api.uploadFile(prepared.blob);
+
+      if (view.boardId === boardId) {
+        view.addImageCard(
+          {
+            fileId: uploaded.id,
+            width: prepared.width || uploaded.width,
+            height: prepared.height || uploaded.height
+          },
+          { x: point.x + index * DROP_OFFSET, y: point.y + index * DROP_OFFSET }
+        );
+      }
+    } catch (error) {
+      problems.push(error.message || "The image couldn't be added.");
+    }
+  }
+
+  if (problems.length) {
+    const more = problems.length > 1 ? ` (and ${problems.length - 1} more)` : "";
+    showToast(problems[0] + more, { tone: "error", timeout: 7000 });
+  } else {
+    hideToast();
+  }
+}
+
+// A lone http(s) address becomes a link card; other text becomes a note.
+function addText(text, point) {
+  const value = text.trim();
+
+  if (!value) {
+    return;
+  }
+
+  const url = /\s/.test(value) ? null : httpUrl(value);
+
+  if (url && url.length <= MAX_URL_LENGTH) {
+    view.addLinkCard(url, point);
+  } else {
+    view.addNoteCard(value.replace(/\r\n?/g, "\n").slice(0, MAX_NOTE_LENGTH), point);
+  }
+}
+
+for (const type of ["note", "checklist", "link", "section", "folder"]) {
+  document.getElementById(`add-${type}`).addEventListener("click", () => view.createCardInView(type));
+}
+
+imageInput.accept = IMAGE_ACCEPT;
+document.getElementById("add-image").addEventListener("click", () => imageInput.click());
+imageInput.addEventListener("change", () => {
+  const files = [...imageInput.files];
+  imageInput.value = "";
+
+  if (files.length && view.boardId) {
+    addImages(files, view.freeSpotInView("image"));
+  }
+});
+
+undoButton.addEventListener("click", () => view.undo());
+redoButton.addEventListener("click", () => view.redo());
+
+function droppable(event) {
+  const types = [...(event.dataTransfer?.types ?? [])];
+  return types.includes("Files") || types.includes("text/uri-list") || types.includes("text/plain");
+}
+
+canvas.addEventListener("dragover", (event) => {
+  if (view.boardId && droppable(event) && !isTextTarget(event.target)) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    canvas.classList.add("is-drop-target");
+  }
+});
+
+canvas.addEventListener("dragleave", (event) => {
+  if (!canvas.contains(event.relatedTarget)) {
+    canvas.classList.remove("is-drop-target");
+  }
+});
+
+canvas.addEventListener("drop", (event) => {
+  canvas.classList.remove("is-drop-target");
+
+  if (!view.boardId || isTextTarget(event.target)) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const point = view.worldPointAt(event);
+  const files = [...event.dataTransfer.files];
+
+  if (files.length) {
+    addImages(files, point);
+    return;
+  }
+
+  const uri = event.dataTransfer.getData("text/uri-list")
+    .split(/\r?\n/)
+    .find((line) => line && !line.startsWith("#"));
+
+  addText(uri || event.dataTransfer.getData("text/plain"), point);
+});
+
+// Files dropped anywhere else would make the browser open them.
+document.addEventListener("dragover", (event) => {
+  if (event.dataTransfer?.types.includes("Files")) {
+    event.preventDefault();
+  }
+});
+
+document.addEventListener("drop", (event) => {
+  if (event.dataTransfer?.types.includes("Files")) {
+    event.preventDefault();
+  }
+});
+
+document.addEventListener("paste", (event) => {
+  if (!view.boardId || isTextTarget(event.target) || !event.clipboardData) {
+    return;
+  }
+
+  const files = [...event.clipboardData.files];
+  const text = event.clipboardData.getData("text/plain");
+
+  if (!files.length && !text.trim()) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const point = view.pastePoint();
+
+  if (files.length) {
+    addImages(files, point);
+  } else {
+    addText(text, point);
+  }
+});
+
+// ---- Page events ---------------------------------------------------------------
 
 window.addEventListener("hashchange", load);
 window.addEventListener("focus", checkForUpdates);

@@ -45,16 +45,16 @@ export function checkJsonContentType(request) {
   }
 }
 
-// Reads at most maxBytes before parsing, whatever Content-Length claims.
-export async function readJson(request, maxBytes) {
+// Reads at most maxBytes, whatever Content-Length claims.
+export async function readBytes(request, maxBytes, tooLargeMessage = "Request too large.") {
   const declared = Number(request.headers.get("Content-Length") || 0);
 
   if (declared > maxBytes) {
-    throw new HttpError(413, "Request too large.");
+    throw new HttpError(413, tooLargeMessage);
   }
 
   if (!request.body) {
-    throw new HttpError(400, "Invalid JSON.");
+    return new Uint8Array(0);
   }
 
   const reader = request.body.getReader();
@@ -72,7 +72,7 @@ export async function readJson(request, maxBytes) {
 
     if (total > maxBytes) {
       await reader.cancel();
-      throw new HttpError(413, "Request too large.");
+      throw new HttpError(413, tooLargeMessage);
     }
 
     chunks.push(value);
@@ -85,6 +85,12 @@ export async function readJson(request, maxBytes) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+
+  return bytes;
+}
+
+export async function readJson(request, maxBytes) {
+  const bytes = await readBytes(request, maxBytes);
 
   try {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));

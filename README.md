@@ -73,7 +73,9 @@ A private canvas app at `https://retne.games/hub/`. The full specification is in
 - `migrations/`: D1 schema for the `retne-hub` database
 - `test/`: checks for the token verification, run with `npm test`
 
-Controls: drag empty canvas to pan (also Space+drag or the middle button), Shift+drag to select several cards, wheel or pinch to zoom. Double-click (double-tap on touch) to edit a card, open a folder, rename a folder by its name, or add a note on empty canvas. Click the current board name in the breadcrumb to rename it. Changes save automatically.
+Controls: drag empty canvas to pan (also Space+drag or the middle button), Shift+drag to select several cards, wheel or pinch to zoom. Double-click (double-tap on touch) to edit a card, open a folder, rename a folder by its name, or add a note on empty canvas. Right-click a card (long-press on touch) for colour, text size, duplicate, order and delete. Sections move by their title bar and carry the cards inside them. Drop or paste images, links and text onto the canvas. Keys: Delete, Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl+Y), Ctrl/Cmd+D, Ctrl/Cmd+A, arrows (Shift for 10), Esc, F to fit all. Click the current board name in the breadcrumb to rename it. Changes save automatically.
+
+Images are checked by their content (PNG, JPEG, WebP or GIF only, 10 MB max) and stored in the R2 bucket under `images/<id>`. Images over 2,400 px are shrunk in the browser before upload.
 
 Cloudflare Access protects `/hub` at the edge. The Worker also verifies the Access token on every `/hub` request and returns 403 when it fails. `run_worker_first: true` in `wrangler.jsonc` sends every request to the Worker before the asset server. Without it, static files skip the Worker, its security headers and the hub's token check.
 

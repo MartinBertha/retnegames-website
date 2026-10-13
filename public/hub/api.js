@@ -8,6 +8,7 @@ export class ApiError extends Error {
 }
 
 // keepalive lets a save finish while the page is being hidden or closed.
+// A Blob body is sent as is, with its own type (image uploads).
 async function request(method, path, body, { keepalive = false } = {}) {
   const init = {
     method,
@@ -19,7 +20,10 @@ async function request(method, path, body, { keepalive = false } = {}) {
     redirect: "manual"
   };
 
-  if (method !== "GET") {
+  if (body instanceof Blob) {
+    init.headers["Content-Type"] = body.type;
+    init.body = body;
+  } else if (method !== "GET") {
     init.headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body ?? {});
   }
@@ -54,5 +58,8 @@ export const api = {
   createBoard: (board) => request("POST", "/boards", board),
   updateBoard: (id, changes, options) => request("PATCH", boardPath(id), changes, options),
   deleteBoard: (id) => request("DELETE", boardPath(id)),
-  saveChanges: (id, ops, options) => request("POST", `${boardPath(id)}/changes`, { ops }, options)
+  saveChanges: (id, ops, options) => request("POST", `${boardPath(id)}/changes`, { ops }, options),
+  uploadFile: (blob) => request("POST", "/files", blob)
 };
+
+export const fileUrl = (fileId) => `/hub/api/files/${encodeURIComponent(fileId)}`;

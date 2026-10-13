@@ -21,13 +21,20 @@ export class Viewport {
     this.width = element.clientWidth;
     this.height = element.clientHeight;
 
-    // Keep the same world point in the middle when the canvas changes size.
-    new ResizeObserver(() => {
+    new ResizeObserver(() => this.measure()).observe(element);
+  }
+
+  // Keeps the same world point in the middle when the canvas changes size.
+  measure() {
+    const width = this.element.clientWidth;
+    const height = this.element.clientHeight;
+
+    if (width !== this.width || height !== this.height) {
       const center = this.centerWorld();
-      this.width = element.clientWidth;
-      this.height = element.clientHeight;
+      this.width = width;
+      this.height = height;
       this.setView(center.x, center.y, this.zoom, { silent: true });
-    }).observe(element);
+    }
   }
 
   localPoint(event) {
