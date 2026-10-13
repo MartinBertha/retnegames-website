@@ -227,7 +227,7 @@ Notes:
 
 ### Look and feel
 - Dark and light, defaulting to the system setting (`prefers-color-scheme`) with a manual toggle remembered in `localStorage` (wrap in try/catch).
-- **Match the retne.games visual style:** read `public/styles.css` and reuse its fonts, colours and tone where sensible; do not load external fonts.
+- **Match the retne.games visual style:** read `public/styles.css` and reuse its colours and tone where sensible. Use standard system fonts only: not the site's Perfect DOS VGA 437 pixel font (it can't render all characters), and no external or web fonts.
 - Touch targets at least 44 px. Visible keyboard focus. `aria-label` on icon buttons. Respect `prefers-reduced-motion`.
 - Must be usable on a phone (about 390 px wide) and on desktop.
 
