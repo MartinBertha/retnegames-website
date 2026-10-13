@@ -6,6 +6,7 @@ import { api, ApiError } from "./api.js";
 import { BoardView } from "./board.js";
 import { httpUrl } from "./cards.js";
 import { IMAGE_ACCEPT, imageFileProblem, prepareImage } from "./images.js";
+import { initPalette } from "./palette.js";
 import { Saver } from "./saver.js";
 import { initThemeToggle } from "./theme-toggle.js";
 import { hideToast, showToast } from "./toast.js";
@@ -136,10 +137,10 @@ function showEmptyHint(count) {
   if (count === 0 && current.parentId === null) {
     showNotice(
       "Welcome to your hub.",
-      "Add a folder for each project, or notes, checklists, images and links. Double-click or double-tap anywhere to add a note."
+      "Drag a folder from the toolbar for each project, or notes, checklists, images and links. Double-click or double-tap anywhere to add a note."
     );
   } else if (count === 0) {
-    showNotice("This board is empty.", "Double-click or double-tap to add a note, or use the toolbar.");
+    showNotice("This board is empty.", "Drag a card from the toolbar, or double-click or double-tap to add a note.");
   } else {
     notice.replaceChildren();
   }
@@ -544,18 +545,36 @@ function addText(text, point) {
   }
 }
 
-for (const type of ["note", "checklist", "link", "section", "folder"]) {
-  document.getElementById(`add-${type}`).addEventListener("click", () => view.createCardInView(type));
-}
+// Where images chosen after dropping the Image button go.
+let imageDropPoint = null;
+
+initPalette({
+  tools: [...document.querySelectorAll(".tool[data-card-type]")],
+  canvas,
+  view,
+  onAdd: (type, point) => {
+    if (type === "image") {
+      imageDropPoint = point;
+      imageInput.click();
+    } else if (point) {
+      view.createCard(type, point);
+    } else {
+      view.createCardInView(type);
+    }
+  },
+  onHint: (label) => showToast(`Drag "${label}" onto the board to add it.`)
+});
 
 imageInput.accept = IMAGE_ACCEPT;
-document.getElementById("add-image").addEventListener("click", () => imageInput.click());
 imageInput.addEventListener("change", () => {
   const files = [...imageInput.files];
+  const point = imageDropPoint ?? view.freeSpotInView("image");
+
   imageInput.value = "";
+  imageDropPoint = null;
 
   if (files.length && view.boardId) {
-    addImages(files, view.freeSpotInView("image"));
+    addImages(files, point);
   }
 });
 

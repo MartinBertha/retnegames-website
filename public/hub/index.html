@@ -37,27 +37,27 @@
 
   <div class="workspace">
     <nav class="toolbar" aria-label="Toolbar">
-      <button type="button" id="add-note" class="tool">
+      <button type="button" id="add-note" class="tool" data-card-type="note" aria-describedby="tool-hint" title="Drag onto the board">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
         <span class="tool-label">Note</span>
       </button>
-      <button type="button" id="add-checklist" class="tool">
+      <button type="button" id="add-checklist" class="tool" data-card-type="checklist" aria-describedby="tool-hint" title="Drag onto the board">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="5" height="5" rx="1"/><path d="M4.8 16.8l1.4 1.4 2.6-2.8M12 7h8.5M12 17h8.5"/></svg>
         <span class="tool-label">Checklist</span>
       </button>
-      <button type="button" id="add-image" class="tool">
+      <button type="button" id="add-image" class="tool" data-card-type="image" aria-describedby="tool-hint" title="Drag onto the board">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-10 9"/></svg>
         <span class="tool-label">Image</span>
       </button>
-      <button type="button" id="add-link" class="tool">
+      <button type="button" id="add-link" class="tool" data-card-type="link" aria-describedby="tool-hint" title="Drag onto the board">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
         <span class="tool-label">Link</span>
       </button>
-      <button type="button" id="add-section" class="tool">
+      <button type="button" id="add-section" class="tool" data-card-type="section" aria-describedby="tool-hint" title="Drag onto the board">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke-dasharray="3 2.5"/><path d="M3 8.5h18"/></svg>
         <span class="tool-label">Section</span>
       </button>
-      <button type="button" id="add-folder" class="tool">
+      <button type="button" id="add-folder" class="tool" data-card-type="folder" aria-describedby="tool-hint" title="Drag onto the board">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         <span class="tool-label">Folder</span>
       </button>
@@ -71,6 +71,7 @@
         <span class="tool-label">Redo</span>
       </button>
       <input type="file" id="image-input" multiple hidden>
+      <span id="tool-hint" hidden>Drag onto the board, or press Enter to add it in the middle of the view.</span>
     </nav>
 
     <main id="canvas" class="canvas" aria-label="Board canvas">

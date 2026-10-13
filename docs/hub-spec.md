@@ -130,7 +130,7 @@ On first run (no boards exist), the API creates a root board named **Home**.
 
 | Type | `data` |
 |---|---|
-| `note` | `{ "text": string, "size": "s" \| "m" \| "l" }` plain text, multi-line; `size` is the text size. URLs are auto-linked at render time. |
+| `note` | `{ "title": string, "text": string, "size": "s" \| "m" \| "l" }` optional one-line title (shown larger and bold) above plain, multi-line text; `size` is the text size. URLs are auto-linked at render time. Notes saved without `title` have none. |
 | `checklist` | `{ "title": string, "entries": [ { "id": uuid, "text": string, "done": boolean } ] }` |
 | `image` | `{ "fileId": uuid, "caption": string }` |
 | `link` | `{ "url": string, "title": string }` (`http` or `https` only) |
@@ -188,7 +188,7 @@ Notes:
 
 ### Layout
 - **Top bar:** breadcrumb (Home › Game › Art), save status ("Saved", "Saving…", "Offline, retrying"), theme toggle, export and import (menu).
-- **Add-card toolbar** (bottom on mobile, left on desktop): Note, Checklist, Image (file picker), Link, Section, Folder.
+- **Add-card toolbar** (bottom on mobile, left on desktop): Note, Checklist, Image (file picker), Link, Section, Folder. Cards are added by **dragging** a button onto the canvas (an outline of the card follows the pointer and the card lands where it is dropped; dropping Image opens the file picker for that spot). A plain click only shows a hint; Enter or Space on a focused button adds the card in the middle of the view.
 - **Canvas:** fills the rest of the screen. A subtle dot grid that scales with zoom.
 - **Navigation state** in the URL hash: `#/b/<boardId>`, so refresh and browser back or forward work. No hash means the root board.
 
@@ -227,6 +227,7 @@ Notes:
 
 ### Look and feel
 - Dark and light, defaulting to the system setting (`prefers-color-scheme`) with a manual toggle remembered in `localStorage` (wrap in try/catch).
+- **Titles** of notes, checklists and sections are larger and bold. Corners are only slightly rounded (4px on cards and controls, 2px on small elements).
 - **Match the retne.games visual style:** read `public/styles.css` and reuse its colours and tone where sensible. Use standard system fonts only: not the site's Perfect DOS VGA 437 pixel font (it can't render all characters), and no external or web fonts.
 - Touch targets at least 44 px. Visible keyboard focus. `aria-label` on icon buttons. Respect `prefers-reduced-motion`.
 - Must be usable on a phone (about 390 px wide) and on desktop.

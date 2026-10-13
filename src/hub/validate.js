@@ -125,12 +125,17 @@ function boundedNumber(value, min, max, message) {
 
 // Normalised data per card type; unknown keys are dropped.
 const DATA_VALIDATORS = {
+  // The title is optional (notes saved before it existed have none).
   note(data) {
     if (!isPlainObject(data) || !NOTE_SIZES.has(data.size)) {
       invalid("Invalid note.");
     }
 
-    return { text: cleanText(data.text, LIMITS.noteLength, "Note text"), size: data.size };
+    return {
+      title: cleanLine(data.title, LIMITS.nameLength, "Title"),
+      text: cleanText(data.text, LIMITS.noteLength, "Note text"),
+      size: data.size
+    };
   },
 
   folder(data) {

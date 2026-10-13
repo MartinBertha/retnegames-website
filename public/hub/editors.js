@@ -58,41 +58,75 @@ function normaliseUrl(value) {
   return href && href.length <= MAX_URL_LENGTH ? href : null;
 }
 
-function noteEditor(view, item, card, { fresh }) {
+// A title line and the text. New notes start in the title; Enter moves on.
+function noteEditor(view, item, card, { fresh, focusTitle }) {
+  const title = card.querySelector(".note-title");
   const text = card.querySelector(".note-text");
+  const titleInput = textInput("note-title-editor", item.data.title ?? "", "Note title", MAX_TITLE_LENGTH);
   const editor = document.createElement("textarea");
+  const handle = card.querySelector(".resize-handle");
 
+  titleInput.placeholder = "Title";
+  titleInput.enterKeyHint = "next";
   editor.className = "card-editor note-editor";
   editor.value = item.data.text;
+  editor.placeholder = "Write something…";
   editor.maxLength = MAX_NOTE_LENGTH;
   editor.setAttribute("aria-label", "Note text");
+  title.hidden = true;
   text.hidden = true;
-  card.insertBefore(editor, card.querySelector(".resize-handle"));
+  card.insertBefore(titleInput, handle);
+  card.insertBefore(editor, handle);
 
   // Saved as you type; the undo step covers the whole edit.
+  titleInput.addEventListener("input", () => {
+    item.data.title = oneLine(titleInput.value);
+    view.emit([item.id]);
+  });
+
   editor.addEventListener("input", () => {
     item.data.text = editor.value;
     view.growToFit(item, card, editor);
     view.emit([item.id]);
   });
 
+  titleInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === "ArrowDown") {
+      event.preventDefault();
+      editor.focus({ preventScroll: true });
+      editor.setSelectionRange(0, 0);
+    }
+  });
+
   editor.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowUp" && editor.selectionStart === 0 && editor.selectionEnd === 0) {
+      event.preventDefault();
+      focusEnd(titleInput);
+    }
+  });
+
+  const onEscape = (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
       view.finishEditing();
     }
-  });
+  };
 
+  card.addEventListener("keydown", onEscape);
   const stop = onFocusLeave(view, card);
-  focusEnd(editor);
+  focusEnd(fresh || focusTitle ? titleInput : editor);
   view.growToFit(item, card, editor);
 
   return {
     finish() {
       stop();
+      card.removeEventListener("keydown", onEscape);
+      titleInput.remove();
       editor.remove();
+      title.hidden = false;
       text.hidden = false;
-      return !(fresh && !item.data.text.trim());
+      item.data.title = (item.data.title ?? "").trim();
+      return !(fresh && !item.data.title && !item.data.text.trim());
     }
   };
 }

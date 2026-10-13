@@ -113,7 +113,7 @@ function folderIcon() {
 }
 
 const STRUCTURE = {
-  note: () => [el("div", "note-text")],
+  note: () => [el("div", "note-title"), el("div", "note-text")],
   checklist: () => {
     const add = el("button", "entry-add card-control", "+ Add item");
     add.type = "button";
@@ -136,8 +136,10 @@ function describe(item) {
   const { data } = item;
 
   switch (item.type) {
-    case "note":
-      return `Note: ${data.text.trim().slice(0, 80) || "empty"}`;
+    case "note": {
+      const text = data.text.trim().slice(0, 80);
+      return `Note: ${[data.title, text].filter(Boolean).join(". ") || "empty"}`;
+    }
     case "checklist": {
       const done = data.entries.filter((entry) => entry.done).length;
       return `Checklist${data.title ? ` ${data.title}` : ""}: ${done} of ${data.entries.length} done`;
@@ -260,6 +262,10 @@ const RENDERERS = {
   note(card, item) {
     card.classList.toggle("note-s", item.data.size === "s");
     card.classList.toggle("note-l", item.data.size === "l");
+
+    const title = card.querySelector(".note-title");
+    title.textContent = item.data.title ?? "";
+    title.hidden = !item.data.title;
 
     const text = card.querySelector(".note-text");
     text.replaceChildren();

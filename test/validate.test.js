@@ -38,10 +38,17 @@ function rejects(raw, pattern) {
 describe("validateItem", () => {
   it("accepts a note and serialises only known data", () => {
     const item = validateItem(note({ updatedAt: 5 }, { extra: "dropped" }));
-    assert.deepEqual(item.data, { text: "Hello", size: "m" });
-    assert.equal(item.dataJson, '{"text":"Hello","size":"m"}');
+    assert.deepEqual(item.data, { title: "", text: "Hello", size: "m" });
+    assert.equal(item.dataJson, '{"title":"","text":"Hello","size":"m"}');
     assert.equal(item.color, null);
     assert.equal("updatedAt" in item, false);
+  });
+
+  it("gives notes an optional one-line title", () => {
+    assert.equal(validateItem(note({}, { title: "  Big\nidea " })).data.title, "Big idea");
+    assert.equal(validateItem(note({}, { title: undefined })).data.title, "");
+    rejects(note({}, { title: "x".repeat(101) }), /at most 100/);
+    rejects(note({}, { title: 7 }), /Title must be text/);
   });
 
   it("accepts a folder", () => {

@@ -49,7 +49,7 @@ function snapshot({ id, type, x, y, w, h, z, color, data }) {
 function defaultData(type) {
   switch (type) {
     case "note":
-      return { text: "", size: "m" };
+      return { title: "", text: "", size: "m" };
     case "checklist":
       return { title: "", entries: [] };
     case "link":
@@ -481,7 +481,7 @@ export class BoardView {
   }
 
   addNoteCard(text, center) {
-    return this.createCard("note", center, { data: { text, size: "m" }, edit: false });
+    return this.createCard("note", center, { data: { title: "", text, size: "m" }, edit: false });
   }
 
   // Grows a note or checklist so its content isn't cut off.
@@ -849,7 +849,11 @@ export class BoardView {
     if (item.type === "folder" && !element?.closest(".folder-name")) {
       this.callbacks.onOpenBoard(item.data.childBoardId);
     } else {
-      this.startEditing(id, { focusEntryId: element?.closest(".entry")?.dataset.entryId, restoreFocus });
+      this.startEditing(id, {
+        focusEntryId: element?.closest(".entry")?.dataset.entryId,
+        focusTitle: Boolean(element?.closest(".note-title")),
+        restoreFocus
+      });
     }
   }
 
