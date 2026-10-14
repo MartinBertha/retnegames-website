@@ -5,7 +5,9 @@
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 4;
 
-const GRID_STEP = 24;
+// The dot grid, in world pixels. Cards snap to it.
+export const GRID = 24;
+
 const MIN_GRID_SCREEN_STEP = 12;
 
 const clampZoom = (zoom) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
@@ -46,6 +48,11 @@ export class Viewport {
     return { x: (point.x - this.x) / this.zoom, y: (point.y - this.y) / this.zoom };
   }
 
+  // World point to a point relative to the canvas element.
+  toScreen(point) {
+    return { x: point.x * this.zoom + this.x, y: point.y * this.zoom + this.y };
+  }
+
   centerWorld() {
     return this.toWorld({ x: this.width / 2, y: this.height / 2 });
   }
@@ -82,7 +89,9 @@ export class Viewport {
     this.world.style.setProperty("--zoom", String(this.zoom));
 
     // The dot grid follows the world; dots thin out when zoomed far out.
-    let step = GRID_STEP * this.zoom;
+    // Each dot is drawn in the middle of its tile, so the tiles start half a
+    // step early to put the dots exactly on the snap points.
+    let step = GRID * this.zoom;
 
     while (step < MIN_GRID_SCREEN_STEP) {
       step *= 2;
@@ -90,8 +99,8 @@ export class Viewport {
 
     const style = this.element.style;
     style.setProperty("--grid-size", `${step}px`);
-    style.setProperty("--grid-x", `${this.x % step}px`);
-    style.setProperty("--grid-y", `${this.y % step}px`);
+    style.setProperty("--grid-x", `${(this.x - step / 2) % step}px`);
+    style.setProperty("--grid-y", `${(this.y - step / 2) % step}px`);
 
     if (!silent) {
       this.onChange?.();

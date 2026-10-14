@@ -197,6 +197,7 @@ Notes:
 - **Pan:** drag on empty canvas (or hold Space and drag, or middle mouse button). **Zoom:** mouse wheel or trackpad pinch, centred on the cursor, 10% to 400%.
 - **Touch:** one finger on empty canvas pans; two fingers pinch-zoom and pan; tap selects; drag a card by its body; a card's edit mode is entered by double-tap.
 - **Fit all** button (and key `F`) frames all cards on the board. The last pan and zoom per board is saved and restored on open.
+- **Grid snapping** (default on): the dot grid is 24 board px, with dots exactly on the snap points. A new card's top-left corner snaps to the grid wherever it's placed (toolbar drop, double-click, paste, file drop), and the drag outline shows the snapped spot. Moving snaps the grabbed card's top-left corner; other cards moving with it (multi-select, cards in a section) keep their offsets. Resizing snaps the right and bottom edges to grid lines, never below the card's minimum size. Notes and checklists that grow with their content end on a grid line. Holding **Shift** places, moves and resizes freely (it applies live, mid-drag). A "Snap to grid" switch in the ⋯ menu turns snapping off on that device (for touch screens without Shift). Cards placed earlier land on the grid the next time they're moved or resized. Default card sizes are whole grid cells.
 
 ### Cards
 - **Select:** click or tap; Shift-click adds to the selection; drag a marquee on empty canvas to select several.
@@ -209,7 +210,7 @@ Notes:
 ### Per-card details
 - **Note:** a text area while editing; rendered as plain text with auto-linked URLs. Text size S, M or L from the context menu.
 - **Checklist:** title plus entries with checkboxes; press Enter in an entry to add the next one; follows the ordering rule in section 4, with a short animation (disabled under `prefers-reduced-motion`).
-- **Image:** shows the image scaled to the card with an optional caption; resize keeps the aspect ratio by default. The client downscales images larger than 2,400 px on the long edge before upload.
+- **Image:** shows the image scaled to the card with an optional caption; resize keeps the aspect ratio by default (only the right edge snaps; the height follows), and holding Alt/Option resizes freely. The client downscales images larger than 2,400 px on the long edge before upload.
 - **Link:** shows title and hostname; click opens the URL in a new tab with `rel="noopener noreferrer"`. No remote fetching of titles or favicons in v1 (the user types the title; default to the hostname).
 - **Section:** a large translucent labelled rectangle behind other cards.
 - **Folder:** a folder icon with the board's name underneath; rename in place.
@@ -217,7 +218,7 @@ Notes:
 ### Input shortcuts
 - Drop image files onto the canvas to create image cards at the drop point.
 - Paste: an image from the clipboard creates an image card; a URL creates a link card; other text creates a note.
-- Keys: `Delete` or `Backspace` delete selection; `Ctrl/Cmd+Z` and `Ctrl/Cmd+Shift+Z` or `Ctrl+Y` undo and redo; `Ctrl/Cmd+D` duplicate; `Ctrl/Cmd+A` select all; arrow keys nudge; `Esc` clears selection; `F` fits all.
+- Keys: `Delete` or `Backspace` delete selection; `Ctrl/Cmd+Z` and `Ctrl/Cmd+Shift+Z` or `Ctrl+Y` undo and redo; `Ctrl/Cmd+D` duplicate; `Ctrl/Cmd+A` select all; arrow keys nudge by one grid step (Shift: 1px; with snapping switched off, 1px and Shift 10px); `Esc` clears selection; `F` fits all.
 - **Undo and redo:** client-side stack of up to 100 operations per open board; covers create, delete, move, resize, colour, text edits and checklist changes.
 
 ### Saving

@@ -18,7 +18,7 @@ import {
 import { startEditor } from "./editors.js";
 import { History } from "./history.js";
 import { CardMenu } from "./menu.js";
-import { Viewport } from "./viewport.js";
+import { GRID, Viewport } from "./viewport.js";
 
 const COORDINATE_LIMIT = 1_000_000;
 const MAX_CARD_SIZE = 10_000;
@@ -26,13 +26,19 @@ const MAX_NAME_LENGTH = 100;
 const DOUBLE_TAP_MS = 350;
 const DOUBLE_TAP_DISTANCE = 24;
 const LONG_PRESS_MS = 550;
-const CASCADE_OFFSET = 24;
-const IMAGE_CARD_EDGE = 320;
+const CASCADE_OFFSET = GRID;
+const IMAGE_CARD_EDGE = 336;
 const FIT_PADDING = 48;
 const POINTER_MEMORY_MS = 10_000;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const clampCoordinate = (value) => Math.round(clamp(value, -COORDINATE_LIMIT, COORDINATE_LIMIT));
+const snapToGrid = (value) => Math.round(value / GRID) * GRID;
+const gridCeil = (value) => Math.ceil(value / GRID) * GRID;
+// The next grid line past value in a direction (+1 or -1).
+const nextGridLine = (value, direction) => (
+  direction > 0 ? Math.floor(value / GRID + 1) * GRID : Math.ceil(value / GRID - 1) * GRID
+);
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 const sameState = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -84,6 +90,8 @@ export class BoardView {
     this.lastTap = null;
     this.lastPointer = null;
     this.spaceDown = false;
+    this.snapEnabled = true;
+    this.modifiers = { shift: false, alt: false };
 
     // Sections always sit behind the other cards.
     this.layers = { section: document.createElement("div"), card: document.createElement("div") };
@@ -168,13 +176,107 @@ export class BoardView {
     // Phones: keep the field being edited above the on-screen keyboard.
     window.visualViewport?.addEventListener("resize", () => this.keepEditorInView());
 
+    // Shift (no snapping) and Alt (free image proportions) apply mid-drag.
+    document.addEventListener("keydown", (event) => this.trackModifiers(event), true);
+    document.addEventListener("keyup", (event) => this.trackModifiers(event), true);
+
     document.addEventListener("keydown", (event) => this.onKeyDown(event));
     document.addEventListener("keyup", (event) => {
       if (event.key === " ") {
         this.setSpaceDown(false);
       }
     });
-    window.addEventListener("blur", () => this.setSpaceDown(false));
+    window.addEventListener("blur", () => {
+      this.setSpaceDown(false);
+      this.setModifiers({ shiftKey: false, altKey: false });
+    });
+  }
+
+  trackModifiers(event) {
+    // Alt on its own would focus the browser's menu bar in some browsers.
+    if (event.key === "Alt" && this.gesture) {
+      event.preventDefault();
+    }
+
+    this.setModifiers(event);
+  }
+
+  setModifiers({ shiftKey, altKey }) {
+    if (shiftKey === this.modifiers.shift && altKey === this.modifiers.alt) {
+      return;
+    }
+
+    this.modifiers = { shift: shiftKey, alt: altKey };
+
+    const gesture = this.gesture;
+
+    if (gesture?.moved && gesture.last) {
+      if (gesture.type === "card") {
+        this.updateDrag(gesture, gesture.last);
+      } else if (gesture.type === "resize") {
+        this.updateResize(gesture, gesture.last);
+      }
+    }
+  }
+
+  // ---- Grid snapping ----------------------------------------------------
+  // On by default (the ⋯ menu switches it off per device); holding Shift
+  // places, moves and resizes freely.
+
+  setSnapEnabled(enabled) {
+    this.snapEnabled = enabled;
+  }
+
+  snapping(free = this.modifiers.shift) {
+    return this.snapEnabled && !free;
+  }
+
+  // Where a new card goes: centred on a world point, with its top-left corner
+  // on the grid when snapping.
+  placementRect(type, center, { size, free } = {}) {
+    const { w, h } = size ?? CARD_TYPES[type];
+    let x = center.x - w / 2;
+    let y = center.y - h / 2;
+
+    if (this.snapping(free)) {
+      x = snapToGrid(x);
+      y = snapToGrid(y);
+    }
+
+    return { x: clampCoordinate(x), y: clampCoordinate(y), w, h };
+  }
+
+  // The same rectangle in window pixels (the outline while placing from the toolbar).
+  placementPreview(type, event) {
+    const rect = this.placementRect(type, this.worldPointAt(event), { free: event.shiftKey });
+    const canvas = this.canvas.getBoundingClientRect();
+    const corner = this.viewport.toScreen(rect);
+    const zoom = this.viewport.zoom;
+
+    return { left: canvas.left + corner.x, top: canvas.top + corner.y, width: rect.w * zoom, height: rect.h * zoom };
+  }
+
+  // Moves a card's far edge (start + size) onto the nearest grid line,
+  // keeping at least minSize.
+  snapEdge(start, size, minSize) {
+    let edge = snapToGrid(start + size);
+
+    if (edge - start < minSize) {
+      edge = gridCeil(start + minSize);
+    }
+
+    if (edge - start > MAX_CARD_SIZE) {
+      edge = Math.floor((start + MAX_CARD_SIZE) / GRID) * GRID;
+    }
+
+    return edge - start;
+  }
+
+  // Cards that grow with their content end on a grid line.
+  snapGrownHeight(item) {
+    if (this.snapEnabled) {
+      item.h = Math.min(MAX_CARD_SIZE, gridCeil(item.y + item.h) - item.y);
+    }
   }
 
   // ---- Board lifecycle -------------------------------------------------
@@ -386,21 +488,22 @@ export class BoardView {
     }
   }
 
-  // Adds a card centred on a world point. New cards with an editor open it;
-  // the card is saved (and undoable) once that edit ends.
-  createCard(type, center, { data, size, edit = true } = {}) {
+  // Adds a card centred on a world point (snapped to the grid unless `free`).
+  // New cards with an editor open it; the card is saved (and undoable) once
+  // that edit ends.
+  createCard(type, center, { data, size, edit = true, free } = {}) {
     if (!this.boardId) {
       return null;
     }
 
     this.finishEditing();
 
-    const { w, h } = size ?? CARD_TYPES[type];
+    const { x, y, w, h } = this.placementRect(type, center, { size, free });
     const item = this.addItem({
       id: crypto.randomUUID(),
       type,
-      x: clampCoordinate(center.x - w / 2),
-      y: clampCoordinate(center.y - h / 2),
+      x,
+      y,
       w,
       h,
       z: this.maxZ() + 1,
@@ -461,7 +564,8 @@ export class BoardView {
     return this.viewport.toWorld(this.viewport.localPoint(event));
   }
 
-  addImageCard({ fileId, width, height }, center) {
+  // options: { free } places it off the grid (Shift held during a drop).
+  addImageCard({ fileId, width, height }, center, options = {}) {
     const limits = CARD_TYPES.image;
     let size = { w: limits.w, h: limits.h };
 
@@ -473,15 +577,15 @@ export class BoardView {
       };
     }
 
-    return this.createCard("image", center, { data: { fileId, caption: "" }, size, edit: false });
+    return this.createCard("image", center, { ...options, data: { fileId, caption: "" }, size, edit: false });
   }
 
-  addLinkCard(url, center) {
-    return this.createCard("link", center, { data: { url, title: "" }, edit: false });
+  addLinkCard(url, center, options = {}) {
+    return this.createCard("link", center, { ...options, data: { url, title: "" }, edit: false });
   }
 
-  addNoteCard(text, center) {
-    return this.createCard("note", center, { data: { title: "", text, size: "m" }, edit: false });
+  addNoteCard(text, center, options = {}) {
+    return this.createCard("note", center, { ...options, data: { title: "", text, size: "m" }, edit: false });
   }
 
   // Grows a note or checklist so its content isn't cut off.
@@ -498,6 +602,7 @@ export class BoardView {
 
     if (overflow > 0) {
       item.h = Math.min(MAX_CARD_SIZE, Math.ceil(item.h + overflow));
+      this.snapGrownHeight(item);
       positionCard(card, item);
     }
   }
@@ -508,6 +613,7 @@ export class BoardView {
 
     if (overflow > 0) {
       item.h = Math.min(MAX_CARD_SIZE, Math.ceil(item.h + overflow));
+      this.snapGrownHeight(item);
       positionCard(card, item);
     }
   }
@@ -614,6 +720,19 @@ export class BoardView {
     }
 
     this.commitChange(before, { mergeKey: `nudge:${ids.join(",")}` });
+  }
+
+  // Arrow keys with snapping: the first selected card moves to the next grid
+  // line in that direction; the others keep their layout.
+  nudgeSelectedToGrid(dirX, dirY) {
+    const anchor = this.items.get([...this.selected].find((id) => this.items.has(id)));
+
+    if (anchor) {
+      this.nudgeSelected(
+        dirX ? nextGridLine(anchor.x, dirX) - anchor.x : 0,
+        dirY ? nextGridLine(anchor.y, dirY) - anchor.y : 0
+      );
+    }
   }
 
   toggleChecklistEntry(id, entryId) {
@@ -885,6 +1004,7 @@ export class BoardView {
 
     const point = this.viewport.localPoint(event);
     this.pointers.set(event.pointerId, point);
+    this.setModifiers(event);
 
     try {
       this.canvas.setPointerCapture(event.pointerId);
@@ -929,6 +1049,7 @@ export class BoardView {
     }
 
     this.pointers.set(event.pointerId, point);
+    this.setModifiers(event);
 
     const gesture = this.gesture;
 
@@ -960,7 +1081,7 @@ export class BoardView {
 
       this.updateDrag(gesture, point);
     } else if (gesture.type === "resize") {
-      this.updateResize(gesture, point, event.shiftKey);
+      this.updateResize(gesture, point);
     } else if (gesture.type === "marquee") {
       this.updateMarquee(gesture, point);
     } else if (gesture.type === "reorder") {
@@ -976,6 +1097,9 @@ export class BoardView {
     }
 
     const gesture = this.gesture;
+
+    // Re-read Shift/Alt once the gesture is over, so a stale state can't linger.
+    queueMicrotask(() => this.setModifiers(event));
 
     // After a pinch, the finger still down does nothing until lifted.
     if (!gesture || (gesture.type === "pinch" && this.pointers.size)) {
@@ -1109,7 +1233,7 @@ export class BoardView {
 
   tapEmpty(gesture, event) {
     if (this.isDoubleTap("canvas", gesture.start, event.timeStamp)) {
-      this.createCard("note", this.viewport.toWorld(gesture.start));
+      this.createCard("note", this.viewport.toWorld(gesture.start), { free: event.shiftKey });
     } else if (!event.shiftKey && this.selected.size) {
       this.setSelection([]);
     }
@@ -1144,10 +1268,18 @@ export class BoardView {
     gesture.origins = new Map([...ids].map((id) => [id, { x: this.items.get(id).x, y: this.items.get(id).y }]));
   }
 
+  // The grabbed card's top-left corner lands on the grid (unless Shift is
+  // held); every other moving card shifts by the same amount.
   updateDrag(gesture, point) {
     const zoom = this.viewport.zoom;
-    const dx = (point.x - gesture.start.x) / zoom;
-    const dy = (point.y - gesture.start.y) / zoom;
+    let dx = (point.x - gesture.start.x) / zoom;
+    let dy = (point.y - gesture.start.y) / zoom;
+    const anchor = gesture.origins.get(gesture.id);
+
+    if (anchor && this.snapping()) {
+      dx = snapToGrid(anchor.x + dx) - anchor.x;
+      dy = snapToGrid(anchor.y + dy) - anchor.y;
+    }
 
     for (const [id, origin] of gesture.origins) {
       const item = this.items.get(id);
@@ -1185,8 +1317,10 @@ export class BoardView {
     };
   }
 
-  // Images keep their proportions unless Shift is held.
-  updateResize(gesture, point, free) {
+  // The right and bottom edges land on grid lines (unless Shift is held).
+  // Images keep their proportions unless Alt is held; then only the right
+  // edge snaps and the height follows.
+  updateResize(gesture, point) {
     const item = this.items.get(gesture.id);
 
     if (!item) {
@@ -1196,19 +1330,26 @@ export class BoardView {
     const limits = CARD_TYPES[item.type];
     const zoom = this.viewport.zoom;
     const { w, h } = gesture.origin;
+    const snap = this.snapping();
     let width = clamp(w + (point.x - gesture.start.x) / zoom, limits.minW, MAX_CARD_SIZE);
     let height = clamp(h + (point.y - gesture.start.y) / zoom, limits.minH, MAX_CARD_SIZE);
 
-    if (item.type === "image" && !free) {
+    if (item.type === "image" && !this.modifiers.alt) {
       const ratio = w / h;
-      width = Math.max(width, height * ratio);
-      height = width / ratio;
+      const minWidth = Math.max(limits.minW, limits.minH * ratio);
+      const maxWidth = Math.min(MAX_CARD_SIZE, MAX_CARD_SIZE * ratio);
 
-      if (height > MAX_CARD_SIZE || width > MAX_CARD_SIZE) {
-        const scale = Math.min(MAX_CARD_SIZE / width, MAX_CARD_SIZE / height);
-        width *= scale;
-        height *= scale;
+      width = Math.max(width, height * ratio);
+
+      if (snap) {
+        width = this.snapEdge(item.x, width, minWidth);
       }
+
+      width = clamp(width, minWidth, maxWidth);
+      height = width / ratio;
+    } else if (snap) {
+      width = this.snapEdge(item.x, width, limits.minW);
+      height = this.snapEdge(item.y, height, limits.minH);
     }
 
     item.w = Math.round(width);
@@ -1428,8 +1569,13 @@ export class BoardView {
       this.setSelection([]);
     } else if (nudge && this.selected.size) {
       event.preventDefault();
-      const step = event.shiftKey ? 10 : 1;
-      this.nudgeSelected(nudge[0] * step, nudge[1] * step);
+      // Snapping: one grid step (Shift: 1px). Snapping off: 1px (Shift: 10px).
+      if (this.snapping(event.shiftKey)) {
+        this.nudgeSelectedToGrid(nudge[0], nudge[1]);
+      } else {
+        const step = this.snapEnabled || !event.shiftKey ? 1 : 10;
+        this.nudgeSelected(nudge[0] * step, nudge[1] * step);
+      }
     } else if ((key === "f" || key === "F") && !event.shiftKey) {
       event.preventDefault();
       this.fitAll();

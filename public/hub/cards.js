@@ -10,13 +10,14 @@ const ROW_MOVE_MS = 180;
 
 export const COLORS = ["grey", "red", "orange", "yellow", "green", "teal", "blue", "purple"];
 
+// Default sizes are whole cells of the 24px grid.
 export const CARD_TYPES = {
   note: { w: 240, h: 120, minW: 80, minH: 48 },
-  checklist: { w: 260, h: 140, minW: 160, minH: 72 },
-  image: { w: 320, h: 240, minW: 60, minH: 40 },
-  link: { w: 260, h: 84, minW: 160, minH: 64 },
-  section: { w: 520, h: 360, minW: 160, minH: 100 },
-  folder: { w: 160, h: 150, minW: 110, minH: 110 }
+  checklist: { w: 264, h: 144, minW: 160, minH: 72 },
+  image: { w: 336, h: 240, minW: 60, minH: 40 },
+  link: { w: 264, h: 72, minW: 160, minH: 64 },
+  section: { w: 528, h: 360, minW: 160, minH: 100 },
+  folder: { w: 168, h: 144, minW: 110, minH: 110 }
 };
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");

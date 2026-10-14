@@ -473,7 +473,7 @@ function saveView({ keepalive = false } = {}) {
 
 const MAX_NOTE_LENGTH = 20_000;
 const MAX_URL_LENGTH = 2_048;
-const DROP_OFFSET = 32;
+const DROP_OFFSET = 24;
 
 function isTextTarget(target) {
   return target instanceof Element
@@ -481,8 +481,9 @@ function isTextTarget(target) {
 }
 
 // Uploads images one at a time; each becomes a card near `point`. Problems
-// are collected and shown together at the end.
-async function addImages(files, point) {
+// are collected and shown together at the end. options.free places the
+// cards off the grid (Shift held during a drop).
+async function addImages(files, point, options = {}) {
   const boardId = view.boardId;
   const problems = [];
   const images = files.filter((file) => {
@@ -512,7 +513,8 @@ async function addImages(files, point) {
             width: prepared.width || uploaded.width,
             height: prepared.height || uploaded.height
           },
-          { x: point.x + index * DROP_OFFSET, y: point.y + index * DROP_OFFSET }
+          { x: point.x + index * DROP_OFFSET, y: point.y + index * DROP_OFFSET },
+          options
         );
       }
     } catch (error) {
@@ -529,7 +531,7 @@ async function addImages(files, point) {
 }
 
 // A lone http(s) address becomes a link card; other text becomes a note.
-function addText(text, point) {
+function addText(text, point, options = {}) {
   const value = text.trim();
 
   if (!value) {
@@ -539,25 +541,25 @@ function addText(text, point) {
   const url = /\s/.test(value) ? null : httpUrl(value);
 
   if (url && url.length <= MAX_URL_LENGTH) {
-    view.addLinkCard(url, point);
+    view.addLinkCard(url, point, options);
   } else {
-    view.addNoteCard(value.replace(/\r\n?/g, "\n").slice(0, MAX_NOTE_LENGTH), point);
+    view.addNoteCard(value.replace(/\r\n?/g, "\n").slice(0, MAX_NOTE_LENGTH), point, options);
   }
 }
 
 // Where images chosen after dropping the Image button go.
-let imageDropPoint = null;
+let imageDrop = null;
 
 initPalette({
   tools: [...document.querySelectorAll(".tool[data-card-type]")],
   canvas,
   view,
-  onAdd: (type, point) => {
+  onAdd: (type, point, options = {}) => {
     if (type === "image") {
-      imageDropPoint = point;
+      imageDrop = point ? { point, options } : null;
       imageInput.click();
     } else if (point) {
-      view.createCard(type, point);
+      view.createCard(type, point, options);
     } else {
       view.createCardInView(type);
     }
@@ -568,13 +570,13 @@ initPalette({
 imageInput.accept = IMAGE_ACCEPT;
 imageInput.addEventListener("change", () => {
   const files = [...imageInput.files];
-  const point = imageDropPoint ?? view.freeSpotInView("image");
+  const drop = imageDrop ?? { point: view.freeSpotInView("image"), options: {} };
 
   imageInput.value = "";
-  imageDropPoint = null;
+  imageDrop = null;
 
   if (files.length && view.boardId) {
-    addImages(files, point);
+    addImages(files, drop.point, drop.options);
   }
 });
 
@@ -613,7 +615,7 @@ canvas.addEventListener("drop", (event) => {
   const files = [...event.dataTransfer.files];
 
   if (files.length) {
-    addImages(files, point);
+    addImages(files, point, { free: event.shiftKey });
     return;
   }
 
@@ -621,7 +623,7 @@ canvas.addEventListener("drop", (event) => {
     .split(/\r?\n/)
     .find((line) => line && !line.startsWith("#"));
 
-  addText(uri || event.dataTransfer.getData("text/plain"), point);
+  addText(uri || event.dataTransfer.getData("text/plain"), point, { free: event.shiftKey });
 });
 
 // Files dropped anywhere else would make the browser open them.
@@ -793,6 +795,43 @@ importInput.addEventListener("change", () => {
   }
 });
 
+// Snap to grid: on unless switched off on this device. Shift skips it per
+// action on a keyboard; this switch is for touch screens.
+const SNAP_STORAGE_KEY = "hub-snap";
+const snapToggle = document.getElementById("snap-toggle");
+
+function readSnapSetting() {
+  try {
+    return localStorage.getItem(SNAP_STORAGE_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function applySnapSetting(enabled) {
+  view.setSnapEnabled(enabled);
+  snapToggle.setAttribute("aria-checked", String(enabled));
+}
+
+snapToggle.addEventListener("click", () => {
+  const enabled = snapToggle.getAttribute("aria-checked") !== "true";
+
+  try {
+    if (enabled) {
+      localStorage.removeItem(SNAP_STORAGE_KEY);
+    } else {
+      localStorage.setItem(SNAP_STORAGE_KEY, "off");
+    }
+  } catch {
+    // Storage blocked: the choice lasts until reload.
+  }
+
+  applySnapSetting(enabled);
+  setMoreMenu(false, { focus: false });
+  showToast(enabled ? "Snapping to the grid." : "Not snapping to the grid.");
+});
+
+applySnapSetting(readSnapSetting());
 initThemeToggle(document.getElementById("theme-toggle"));
 
 // ---- Page events ---------------------------------------------------------------

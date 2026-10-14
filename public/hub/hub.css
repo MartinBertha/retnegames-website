@@ -392,7 +392,6 @@ body.is-placing * {
   font-size: 0.8rem;
   font-weight: 600;
   pointer-events: none;
-  transform: translate(-50%, -50%);
 }
 
 .drag-ghost.is-over-board {
@@ -1150,6 +1149,18 @@ body.is-placing * {
 .menu-size:hover,
 .menu-item:focus-visible {
   background: var(--hover-strong);
+}
+
+/* On/off items (Snap to grid). */
+.menu-item[role="menuitemcheckbox"]::after {
+  content: "Off";
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.menu-item[role="menuitemcheckbox"][aria-checked="true"]::after {
+  content: "On";
+  color: var(--label);
 }
 
 .menu-hint {

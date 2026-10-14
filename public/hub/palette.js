@@ -20,8 +20,9 @@ function createGhost(label, size, zoom) {
   return ghost;
 }
 
-// tools: buttons with data-card-type. onAdd(type, worldPoint | null) where
-// null means "somewhere in view"; onHint(label) after a tap without a drag.
+// tools: buttons with data-card-type. onAdd(type, worldPoint | null, options)
+// where null means "somewhere in view" and options.free means Shift was held
+// (no grid snapping); onHint(label) after a tap without a drag.
 export function initPalette({ tools, canvas, view, onAdd, onHint }) {
   let drag = null;
 
@@ -72,9 +73,21 @@ export function initPalette({ tools, canvas, view, onAdd, onHint }) {
         document.body.classList.add("is-placing");
       }
 
-      drag.ghost.style.left = `${event.clientX}px`;
-      drag.ghost.style.top = `${event.clientY}px`;
-      drag.ghost.classList.toggle("is-over-board", overBoard(event));
+      // Over the board the outline shows exactly where the card will land
+      // (snapped to the grid unless Shift is held); elsewhere it follows the pointer.
+      const over = overBoard(event);
+      const style = drag.ghost.style;
+
+      if (over) {
+        const spot = view.placementPreview(type, event);
+        style.left = `${spot.left}px`;
+        style.top = `${spot.top}px`;
+      } else {
+        style.left = `${event.clientX - drag.ghost.offsetWidth / 2}px`;
+        style.top = `${event.clientY - drag.ghost.offsetHeight / 2}px`;
+      }
+
+      drag.ghost.classList.toggle("is-over-board", over);
     });
 
     tool.addEventListener("pointerup", (event) => {
@@ -88,7 +101,7 @@ export function initPalette({ tools, canvas, view, onAdd, onHint }) {
       if (!dragged) {
         onHint(label);
       } else if (overBoard(event)) {
-        onAdd(type, view.worldPointAt(event));
+        onAdd(type, view.worldPointAt(event), { free: event.shiftKey });
       }
     });
 
