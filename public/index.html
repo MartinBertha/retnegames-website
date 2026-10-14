@@ -24,7 +24,11 @@
 <body>
   <header class="site-header">
     <a class="brand" href="#top" aria-label="retne.games home">retne.games</a>
-    <nav class="site-nav" aria-label="Main navigation">
+    <button class="nav-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="site-nav">
+      <svg class="icon-open" viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="2.5"/><rect x="3" y="10.75" width="18" height="2.5"/><rect x="3" y="16.5" width="18" height="2.5"/></svg>
+      <svg class="icon-close" viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden="true" focusable="false"><path d="M5.6 3.8 3.8 5.6l6.6 6.4-6.6 6.4 1.8 1.8 6.4-6.6 6.4 6.6 1.8-1.8-6.6-6.4 6.6-6.4-1.8-1.8-6.4 6.6z"/></svg>
+    </button>
+    <nav id="site-nav" class="site-nav" aria-label="Main navigation">
       <a href="#about">About</a>
       <a href="#game">Tiny Trader</a>
       <a href="#contact">Contact Us</a>

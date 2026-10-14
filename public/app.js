@@ -8,6 +8,35 @@
 
   year.textContent = new Date().getFullYear();
 
+  const navToggle = document.querySelector(".nav-toggle");
+  const siteNav = document.getElementById("site-nav");
+
+  const setNav = (open) => {
+    siteNav.classList.toggle("open", open);
+    navToggle.setAttribute("aria-expanded", String(open));
+  };
+
+  navToggle.addEventListener("click", () => {
+    setNav(navToggle.getAttribute("aria-expanded") !== "true");
+  });
+
+  siteNav.addEventListener("click", (event) => {
+    if (event.target.closest("a")) setNav(false);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".site-header")) setNav(false);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      setNav(false);
+      navToggle.focus();
+    }
+  });
+
+  window.matchMedia("(min-width: 681px)").addEventListener("change", () => setNav(false));
+
   if (!form) return;
 
   const setStatus = (message, type = "") => {
