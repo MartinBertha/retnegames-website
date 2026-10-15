@@ -29,13 +29,71 @@
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && siteNav.classList.contains("open")) {
       setNav(false);
       navToggle.focus();
     }
   });
 
   window.matchMedia("(min-width: 681px)").addEventListener("change", () => setNav(false));
+
+  // Screenshot gallery
+  const lightbox = document.getElementById("lightbox");
+  const shots = [...document.querySelectorAll("[data-gallery]")];
+
+  if (lightbox && shots.length) {
+    const lbImg = lightbox.querySelector(".lb-img");
+    const lbCount = lightbox.querySelector(".lb-count");
+    let index = 0;
+
+    const show = (i) => {
+      index = (i + shots.length) % shots.length;
+      const link = shots[index];
+      lbImg.src = link.href;
+      lbImg.alt = link.querySelector("img").alt;
+      lbCount.textContent = `${index + 1} / ${shots.length}`;
+    };
+
+    shots.forEach((link, i) => {
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        show(i);
+        document.documentElement.classList.add("lightbox-open");
+        lightbox.showModal();
+      });
+    });
+
+    lightbox.querySelector(".lb-prev").addEventListener("click", () => show(index - 1));
+    lightbox.querySelector(".lb-next").addEventListener("click", () => show(index + 1));
+    lightbox.querySelector(".lb-close").addEventListener("click", () => lightbox.close());
+
+    // A click on the empty area around the image closes the gallery.
+    lightbox.addEventListener("click", (event) => {
+      if (event.target === lightbox) lightbox.close();
+    });
+
+    lightbox.addEventListener("close", () => {
+      document.documentElement.classList.remove("lightbox-open");
+    });
+
+    lightbox.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowLeft") show(index - 1);
+      if (event.key === "ArrowRight") show(index + 1);
+    });
+
+    let touchX = null;
+
+    lightbox.addEventListener("touchstart", (event) => {
+      touchX = event.touches[0].clientX;
+    }, { passive: true });
+
+    lightbox.addEventListener("touchend", (event) => {
+      if (touchX === null) return;
+      const dx = event.changedTouches[0].clientX - touchX;
+      touchX = null;
+      if (Math.abs(dx) > 50) show(index + (dx < 0 ? 1 : -1));
+    });
+  }
 
   if (!form) return;
 
