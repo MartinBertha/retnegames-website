@@ -50,7 +50,7 @@ None of these values are secrets. There are no new secrets in v1.
 - Boards: infinite canvas, pan and zoom (mouse and touch).
 - Card types: **text note, checklist, image, link, section, folder**.
 - Folder card: double-click opens a new blank board nested under the current one. Breadcrumb navigation back up.
-- Drag, resize, multi-select, duplicate, delete, colour, bring to front or send to back, undo and redo.
+- Drag, resize, multi-select, duplicate, copy, cut and paste (also between boards), delete, colour, bring to front or send to back, undo and redo.
 - Drag-drop and paste for images, URLs and text.
 - Autosave to the server, syncing across devices (desktop and phone).
 - JSON export and import of the board structure.
@@ -148,8 +148,11 @@ The `entries` array is stored in display order and the following invariant alway
 
 ### Folder rules
 - Creating a folder card **atomically** creates a child board (`parent_id` = current board) and stores its id in the item.
-- Renaming the folder card renames the child board, and the reverse.
-- Deleting a folder card soft-deletes the child board and all its descendants. Undo (client-side) restores both.
+- **Shared boards:** copying a folder card makes another card that opens the **same** board (no new board). Several folder cards, on any boards, may open one board; the board's `parent_id` is its home (the board holding its first card) and is used when no other path is known.
+- Renaming any folder card renames the board and every other card that opens it, and the reverse.
+- Deleting a folder card deletes only that card while another live card still opens the board. Deleting the last one soft-deletes the board and the boards only it leads to (boards still opened from elsewhere stay). Undo (re-adding the card) restores them.
+- A folder card can't open Home, its own board, or a board that leads back to the board it's on (`409` "A folder can't go inside itself.").
+- Cut and paste of a folder card moves it: the board's home becomes the new board. If the paste is refused, the client puts the cut card back.
 - Nesting depth is unlimited in principle; the UI breadcrumb truncates the middle on narrow screens.
 
 ### Validation limits
@@ -203,7 +206,8 @@ Notes:
 - **Select:** click or tap; Shift-click adds to the selection; drag a marquee on empty canvas to select several.
 - **Move:** drag. **Resize:** handle on the bottom-right corner. Moving a **section** also moves the cards whose centre is inside it at the moment the drag starts.
 - **Colour:** each card has a colour from a palette of about 8 muted tones (card background, adapting to dark and light themes).
-- **Context menu** (right-click, or long-press on touch): Colour, Duplicate, Bring to front, Send to back, Delete.
+- **Context menu** (right-click, or long-press on touch): Colour, Copy, Cut, Paste, Duplicate, Bring to front, Send to back, Delete. Right-click or long-press on empty canvas offers Paste.
+- **Copy, cut and paste:** `Ctrl/Cmd+C`, `X`, `V` (or the menu) copy the selected cards (a section brings the cards inside it) to the system clipboard as `application/x-retne-hub-cards` JSON plus readable text, and to a per-device store for the menu's Paste. Paste works on any board: the copies keep their layout, centred under the pointer (or in view), with the group's corner on the grid (`Ctrl/Cmd+Shift+V` places freely); pasting again on the same spot steps one grid cell down and right. Copies are identical except for new ids (checklist entries too); images reuse the same file; folder copies open the same board. Paste is one undo step; cut is copy plus delete. In text fields the keys work on text as usual.
 - **Z-order** via the `z` field; newly created or clicked cards come to the front.
 - **Double-click** a note, checklist title, link or section title to edit in place. **Double-click a folder** opens its board. **Double-click empty canvas** creates a new note at that point.
 
@@ -218,7 +222,7 @@ Notes:
 ### Input shortcuts
 - Drop image files onto the canvas to create image cards at the drop point.
 - Paste: an image from the clipboard creates an image card; a URL creates a link card; other text creates a note.
-- Keys: `Delete` or `Backspace` delete selection; `Ctrl/Cmd+Z` and `Ctrl/Cmd+Shift+Z` or `Ctrl+Y` undo and redo; `Ctrl/Cmd+D` duplicate; `Ctrl/Cmd+A` select all; arrow keys nudge by one grid step (Shift: 1px; with snapping switched off, 1px and Shift 10px); `Esc` clears selection; `F` fits all.
+- Keys: `Delete` or `Backspace` delete selection; `Ctrl/Cmd+Z` and `Ctrl/Cmd+Shift+Z` or `Ctrl+Y` undo and redo; `Ctrl/Cmd+C`, `X`, `V` copy, cut and paste cards; `Ctrl/Cmd+D` duplicate; `Ctrl/Cmd+A` select all; arrow keys nudge by one grid step (Shift: 1px; with snapping switched off, 1px and Shift 10px); `Esc` clears selection; `F` fits all.
 - **Undo and redo:** client-side stack of up to 100 operations per open board; covers create, delete, move, resize, colour, text edits and checklist changes.
 
 ### Saving
@@ -287,7 +291,7 @@ Each milestone ends with a staging upload and owner approval.
 
 - Opening `https://retne.games/hub/` while logged out shows the Cloudflare Access login; after GitHub login the app loads. `https://retne.games/` remains public and unchanged. A direct API call without a valid Access token returns 403.
 - A board with notes, checklists, images, links, sections and folder cards persists after a reload, and appears identically on the phone after login.
-- Double-clicking a folder opens a blank nested board; the breadcrumb and browser back return to the parent; the folder's name stays in sync with the board name.
+- Double-clicking a folder opens a blank nested board; the breadcrumb and browser back return the way you came in; the folder's name stays in sync with the board name.
 - Checklist: ticking an entry moves it to the bottom in grey; unticking moves it to the top of the unticked entries; unticked entries are always above ticked ones, including after a reload.
 - Dropping an image file or pasting an image creates an image card. A `.svg` or non-image file is rejected with a clear message. An image over 10 MB is rejected.
 - Pan, zoom, pinch, marquee selection, resize, undo and redo work on desktop; pan, pinch-zoom, move and edit work on a phone.

@@ -200,8 +200,9 @@ export async function importExport({ request, env }) {
   const kept = items.filter((item) => item.type !== "image" || knownFiles.has(item.data.fileId));
   const skippedImages = items.length - kept.length;
 
-  // New ids for everything. Folder cards point at their board's new id; a
-  // folder whose board is missing (or already taken) gets a new empty board.
+  // New ids for everything. Folder cards point at their board's new id (several
+  // cards may share one board); a folder whose board is missing, or that
+  // points at the exported top-level board, gets a new empty board.
   const newIds = new Map([...boards.keys()].map((id) => [id, crypto.randomUUID()]));
   const linked = new Set();
   const newBoards = [];
@@ -212,7 +213,7 @@ export async function importExport({ request, env }) {
     if (item.type === "folder") {
       const child = item.data.childBoardId;
 
-      if (boards.has(child) && child !== root.id && !linked.has(child) && boards.get(child).parentId === item.boardId) {
+      if (boards.has(child) && child !== root.id) {
         linked.add(child);
         item.data.childBoardId = newIds.get(child);
       } else {

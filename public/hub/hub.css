@@ -1163,6 +1163,19 @@ body.is-placing * {
   color: var(--label);
 }
 
+.menu-item:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.menu-item:disabled:hover {
+  background: none;
+}
+
+.card-menu:focus {
+  outline: none;
+}
+
 .menu-hint {
   color: var(--muted);
   font-size: 0.8rem;

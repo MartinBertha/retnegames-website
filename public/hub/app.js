@@ -5,6 +5,7 @@
 import { api, ApiError } from "./api.js";
 import { BoardView } from "./board.js";
 import { httpUrl } from "./cards.js";
+import { CARDS_MIME, makePayload, parsePayload, payloadText, storedPayload, storePayload } from "./clipboard.js";
 import { IMAGE_ACCEPT, imageFileProblem, prepareImage } from "./images.js";
 import { initPalette } from "./palette.js";
 import { Saver } from "./saver.js";
@@ -39,7 +40,8 @@ const STATUS_TEXT = {
   error: "Some changes weren't saved"
 };
 
-// The open board: { id, parentId, name, rev, path }.
+// The open board: { id, parentId, name, rev, path }. path is the way you came
+// in (a board can be opened from several folders), else its home path.
 let current = null;
 let loadCounter = 0;
 let checking = false;
@@ -62,16 +64,66 @@ const saver = new Saver({
       current.rev = Math.max(current.rev, rev);
     }
   },
-  onRejected: (error) => console.error("hub: changes rejected:", error.status, error.message)
+  onRejected: (error, boardId) => {
+    console.error("hub: changes rejected:", error.status, error.message);
+
+    if (error.status === 409 && error.message) {
+      showToast(error.message, { tone: "error", timeout: 7000 });
+      putBackCutFolders(boardId);
+    }
+
+    // Show what the server kept.
+    if (current?.id === boardId) {
+      current.rev = -1;
+      setTimeout(checkForUpdates, 0);
+    }
+  }
 });
+
+// Set while cutting, so deleted folders don't get their own message.
+let cutting = false;
+// The last cut folder cards: { boardId, boardName, items }.
+let lastCut = null;
+
+// A cut folder whose paste was refused (it would go inside itself) goes back
+// where it was cut from, so its board isn't left deleted.
+async function putBackCutFolders(rejectedBoardId) {
+  const cut = lastCut;
+
+  if (!cut || cut.boardId === rejectedBoardId) {
+    return;
+  }
+
+  const missing = [];
+
+  for (const item of cut.items) {
+    try {
+      await api.getBoardRev(item.data.childBoardId);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        missing.push(item);
+      }
+    }
+  }
+
+  if (!missing.length || lastCut !== cut) {
+    return;
+  }
+
+  lastCut = null;
+  saver.queue(cut.boardId, missing.map((item) => ({ op: "upsert", item })));
+  await saver.flush();
+  const what = missing.length === 1 ? `Folder "${missing[0].data.name}" was` : `${missing.length} folders were`;
+  showToast(`A folder can't go inside itself. ${what} put back in "${cut.boardName}".`, { tone: "error", timeout: 9000 });
+}
 
 const view = new BoardView(
   canvas,
   document.getElementById("world"),
   {
     onOps: (boardId, ops) => saver.queue(boardId, ops),
-    onOpenBoard: (id) => {
-      window.location.hash = `#/b/${id}`;
+    onOpenBoard: (id, name) => {
+      openBoard(id, [...(current?.path ?? []), { id, name }]);
     },
     onViewChange: () => {
       scheduleViewSave();
@@ -83,9 +135,23 @@ const view = new BoardView(
       redoButton.disabled = !history.canRedo;
     },
     onFoldersDeleted: (names) => {
+      if (cutting) {
+        return;
+      }
+
       const what = names.length === 1 ? `Folder "${names[0]}"` : `${names.length} folders`;
-      showToast(`${what} deleted with everything in it. Press Undo to restore.`, { timeout: 7000 });
-    }
+      showToast(`${what} deleted. Press Undo to restore.`, { timeout: 7000 });
+    },
+    onClipboard: (action, point) => {
+      if (action === "paste") {
+        pasteStored(point);
+      } else {
+        copyCards(action === "cut", { fromMenu: true });
+      }
+    },
+    canPaste: () => Boolean(storedPayload()),
+    isOnPath: (boardId) => Boolean(current?.path.some((entry) => entry.id === boardId)),
+    onNotice: (message) => showToast(message, { tone: "error", timeout: 7000 })
   }
 );
 
@@ -207,6 +273,12 @@ function renderBreadcrumb() {
     } else if (index < crumbs.length - 1) {
       const link = el("a", "", entry.name);
       link.href = `#/b/${entry.id}`;
+      link.addEventListener("click", (event) => {
+        if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+          event.preventDefault();
+          openBoard(entry.id, path.slice(0, path.indexOf(entry) + 1));
+        }
+      });
       item.append(link);
     } else if (current.parentId === null) {
       const name = el("span", "crumb-current", entry.name);
@@ -337,6 +409,27 @@ async function leaveBoard() {
   ]);
 }
 
+// Opens a board, remembering the folders you came through.
+function openBoard(id, trail) {
+  history.pushState({ trail }, "", `#/b/${id}`);
+  load();
+}
+
+// The remembered way into this board, if it still ends at it.
+function trailTo(board, path) {
+  const trail = history.state?.trail;
+  const valid = Array.isArray(trail) && trail.length > 1
+    && trail.every((entry) => typeof entry?.id === "string" && typeof entry.name === "string")
+    && trail[0].id === path[0]?.id
+    && trail[trail.length - 1].id === board.id;
+
+  if (!valid) {
+    return path;
+  }
+
+  return [...trail.slice(0, -1), { id: board.id, name: board.name }];
+}
+
 async function load() {
   const counter = ++loadCounter;
   const loading = setTimeout(() => showNotice("Loading…"), LOADING_NOTICE_DELAY_MS);
@@ -356,7 +449,8 @@ async function load() {
       return;
     }
 
-    current = { ...board, path };
+    current = { ...board, path: trailTo(board, path) };
+    history.replaceState({ trail: current.path }, "");
     savedView = { viewX: board.viewX, viewY: board.viewY, viewZoom: board.viewZoom };
     notice.replaceChildren();
     renderBreadcrumb();
@@ -407,7 +501,8 @@ async function checkForUpdates() {
       return;
     }
 
-    Object.assign(board, data.board, { path: data.path });
+    const path = board.path.slice(0, -1);
+    Object.assign(board, data.board, { path: [...path, { id: data.board.id, name: data.board.name }] });
     renderBreadcrumb();
     view.applyRemote(withLocalChanges(board.id, data.items));
   } catch (error) {
@@ -639,10 +734,120 @@ document.addEventListener("drop", (event) => {
   }
 });
 
+// ---- Copy, cut and paste of cards -----------------------------------------
+
+let pendingCopy = null;
+let pasteFree = false;
+
+// Ctrl/Cmd+C or X (via the copy event) or the menu: the selected cards go to
+// the system clipboard and to this device's store for the menu's Paste.
+function copyCards(cut, { fromMenu = false } = {}) {
+  const items = view.copySelection();
+
+  if (!items.length) {
+    return false;
+  }
+
+  const payload = makePayload(items);
+  storePayload(payload);
+
+  if (fromMenu) {
+    pendingCopy = payload;
+
+    try {
+      document.execCommand("copy");
+    } catch {
+      // The menu's Paste still works from the store.
+    }
+
+    pendingCopy = null;
+  }
+
+  if (cut) {
+    const folders = items.filter((item) => item.type === "folder");
+    lastCut = folders.length ? { boardId: view.boardId, boardName: current?.name ?? "", items: folders } : null;
+    cutting = true;
+
+    try {
+      view.deleteSelected();
+    } finally {
+      cutting = false;
+    }
+  }
+
+  const count = items.length === 1 ? "1 card" : `${items.length} cards`;
+  showToast(cut ? `Cut ${count}.` : `Copied ${count}.`);
+  return payload;
+}
+
+function onCopy(event, cut) {
+  if (pendingCopy) {
+    event.clipboardData?.setData(CARDS_MIME, JSON.stringify(pendingCopy));
+    event.clipboardData?.setData("text/plain", payloadText(pendingCopy));
+    event.preventDefault();
+    return;
+  }
+
+  if (!view.boardId || !view.selected.size || isTextTarget(event.target) || !event.clipboardData) {
+    return;
+  }
+
+  const payload = copyCards(cut);
+
+  if (payload) {
+    event.clipboardData.setData(CARDS_MIME, JSON.stringify(payload));
+    event.clipboardData.setData("text/plain", payloadText(payload));
+    event.preventDefault();
+  }
+}
+
+document.addEventListener("copy", (event) => onCopy(event, false));
+document.addEventListener("cut", (event) => onCopy(event, true));
+
+// Ctrl+Shift+V pastes cards off the grid.
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+    pasteFree = event.shiftKey;
+  }
+}, true);
+
+function pasteStored(point) {
+  const payload = storedPayload();
+
+  if (payload) {
+    view.pasteCards(payload.items, point ?? view.pastePoint());
+  }
+}
+
+// Cards copied in this hub: our own format, or (where the browser drops it)
+// the plain text we wrote along with the last copy.
+function copiedCards(clipboardData) {
+  const payload = parsePayload(clipboardData.getData(CARDS_MIME));
+
+  if (payload) {
+    return payload;
+  }
+
+  const stored = storedPayload();
+  const text = clipboardData.getData("text/plain");
+  return stored && text && text === payloadText(stored) && !clipboardData.files.length ? stored : null;
+}
+
 document.addEventListener("paste", (event) => {
   if (!view.boardId || isTextTarget(event.target) || !event.clipboardData) {
     return;
   }
+
+  const cards = copiedCards(event.clipboardData);
+
+  if (cards) {
+    event.preventDefault();
+    view.pasteCards(cards.items, view.pastePoint(), { free: pasteFree });
+    pasteFree = false;
+    return;
+  }
+
+  pasteFree = false;
 
   const files = [...event.clipboardData.files];
   const text = event.clipboardData.getData("text/plain");
@@ -836,7 +1041,7 @@ initThemeToggle(document.getElementById("theme-toggle"));
 
 // ---- Page events ---------------------------------------------------------------
 
-window.addEventListener("hashchange", load);
+window.addEventListener("popstate", load);
 window.addEventListener("focus", checkForUpdates);
 window.addEventListener("online", () => saver.flush());
 

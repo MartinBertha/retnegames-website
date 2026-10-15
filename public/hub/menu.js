@@ -1,5 +1,6 @@
 // Card menu (docs/hub-spec.md, section 6): right-click, long-press on touch,
-// or the Menu key / Shift+F10. Acts on the selected cards.
+// or the Menu key / Shift+F10. Acts on the selected cards. On empty canvas it
+// only offers Paste.
 
 import { COLORS } from "./cards.js";
 
@@ -46,6 +47,7 @@ export class CardMenu {
     this.element.hidden = true;
     this.element.setAttribute("role", "menu");
     this.element.setAttribute("aria-label", "Card actions");
+    this.element.tabIndex = -1;
     document.body.append(this.element);
 
     document.addEventListener("pointerdown", (event) => {
@@ -63,8 +65,9 @@ export class CardMenu {
     return !this.element.hidden;
   }
 
-  // colors: colours of the selected cards; noteSizes: their note sizes (empty if no notes).
-  open(x, y, { colors, noteSizes }) {
+  // colors: colours of the selected cards; noteSizes: their note sizes (empty if
+  // no notes); canPaste: there are copied cards; canvas: the empty-canvas menu.
+  open(x, y, { colors, noteSizes, canPaste = false, canvas = false }) {
     const add = (item, action) => {
       item.addEventListener("click", () => {
         this.close();
@@ -72,6 +75,30 @@ export class CardMenu {
       });
       return item;
     };
+
+    const withHint = (label, keys) => {
+      const item = button("menu-item", label);
+      const hint = document.createElement("span");
+      hint.className = "menu-hint";
+      hint.textContent = keys;
+      item.append(hint);
+      return item;
+    };
+
+    const paste = add(withHint("Paste", `${MOD}V`), { type: "paste" });
+    paste.disabled = !canPaste;
+
+    const separator = () => {
+      const line = document.createElement("div");
+      line.className = "menu-separator";
+      line.setAttribute("role", "separator");
+      return line;
+    };
+
+    if (canvas) {
+      this.show(x, y, [paste]);
+      return;
+    }
 
     const swatches = document.createElement("div");
     swatches.className = "menu-swatches";
@@ -109,24 +136,22 @@ export class CardMenu {
       children.push(sizes);
     }
 
-    const duplicate = button("menu-item", "Duplicate");
-    const hint = document.createElement("span");
-    hint.className = "menu-hint";
-    hint.textContent = `${MOD}D`;
-    duplicate.append(hint);
-
-    const separator = document.createElement("div");
-    separator.className = "menu-separator";
-    separator.setAttribute("role", "separator");
-
     children.push(
-      add(duplicate, { type: "duplicate" }),
+      add(withHint("Copy", `${MOD}C`), { type: "copy" }),
+      add(withHint("Cut", `${MOD}X`), { type: "cut" }),
+      paste,
+      add(withHint("Duplicate", `${MOD}D`), { type: "duplicate" }),
+      separator(),
       add(button("menu-item", "Bring to front"), { type: "front" }),
       add(button("menu-item", "Send to back"), { type: "back" }),
-      separator,
+      separator(),
       add(button("menu-item menu-danger", "Delete"), { type: "delete" })
     );
 
+    this.show(x, y, children);
+  }
+
+  show(x, y, children) {
     this.element.replaceChildren(...children);
     this.element.hidden = false;
 
@@ -137,7 +162,7 @@ export class CardMenu {
     this.element.style.left = `${left}px`;
     this.element.style.top = `${top}px`;
 
-    this.element.querySelector(".menu-item")?.focus({ preventScroll: true });
+    (this.element.querySelector(".menu-item:not(:disabled)") ?? this.element).focus({ preventScroll: true });
   }
 
   close() {
@@ -148,7 +173,7 @@ export class CardMenu {
   }
 
   onKeyDown(event) {
-    const items = [...this.element.querySelectorAll("button")];
+    const items = [...this.element.querySelectorAll("button:not(:disabled)")];
     const index = items.indexOf(document.activeElement);
     const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
 

@@ -12,6 +12,7 @@ import {
   readJson
 } from "./http.js";
 import { getFile, uploadFile } from "./files.js";
+import { boardsToDelete, boardsToRestore, hasLiveLink, loadGraph, reachable } from "./folders.js";
 import { exportAll, importExport } from "./transfer.js";
 import { cleanName, isPlainObject, isUuid, validateItem } from "./validate.js";
 
@@ -226,25 +227,7 @@ async function updateBoard({ request, env, params }) {
   ];
 
   if (name !== null) {
-    // Keep the folder card in the parent board in sync with the board name.
-    statements.push(
-      env.DB.prepare(
-        `UPDATE boards SET rev = rev + 1, updated_at = ?2
-         WHERE id = (SELECT parent_id FROM boards WHERE id = ?1 AND deleted_at IS NULL)
-           AND EXISTS (
-             SELECT 1 FROM items
-             WHERE items.board_id = boards.id AND items.type = 'folder'
-               AND items.deleted_at IS NULL
-               AND json_extract(items.data, '$.childBoardId') = ?1
-           )`
-      ).bind(id, now),
-      env.DB.prepare(
-        `UPDATE items SET data = json_set(data, '$.name', ?2), updated_at = ?3
-         WHERE type = 'folder' AND deleted_at IS NULL
-           AND board_id = (SELECT parent_id FROM boards WHERE id = ?1 AND deleted_at IS NULL)
-           AND json_extract(data, '$.childBoardId') = ?1`
-      ).bind(id, name, now)
-    );
+    statements.push(...renameLinkStatements(env, id, name, now));
   }
 
   statements.push(selectBoard(env, id));
@@ -300,68 +283,41 @@ async function createBoard({ request, env }) {
   throw new HttpError(409, "A board with this id already exists.");
 }
 
-// Soft-deletes a (non-root) board and all its live descendants, stamped with
-// one deleted_at so restoreSubtree can bring back exactly that set.
-function deleteSubtree(env, boardId, now) {
-  return env.DB.prepare(
-    `WITH RECURSIVE subtree(id, depth) AS (
-       SELECT id, 0 FROM boards
-       WHERE id = ?1 AND deleted_at IS NULL AND parent_id IS NOT NULL
-       UNION ALL
-       SELECT b.id, s.depth + 1
-       FROM boards b JOIN subtree s ON b.parent_id = s.id
-       WHERE b.deleted_at IS NULL AND s.depth < 1000
-     )
-     UPDATE boards SET deleted_at = ?2, updated_at = ?2
-     WHERE id IN (SELECT id FROM subtree)`
-  ).bind(boardId, now);
-}
-
-// Undoes deleteSubtree: restores the board and the descendants deleted with it.
-function restoreSubtree(env, boardId, deletedAt, now) {
-  return env.DB.prepare(
-    `WITH RECURSIVE subtree(id, depth) AS (
-       SELECT id, 0 FROM boards WHERE id = ?1 AND deleted_at = ?2
-       UNION ALL
-       SELECT b.id, s.depth + 1
-       FROM boards b JOIN subtree s ON b.parent_id = s.id
-       WHERE b.deleted_at = ?2 AND s.depth < 1000
-     )
-     UPDATE boards SET deleted_at = NULL, updated_at = ?3
-     WHERE id IN (SELECT id FROM subtree)`
-  ).bind(boardId, deletedAt, now);
-}
-
-// DELETE /boards/:id. Soft-deletes the board, its descendants and its folder card.
+// DELETE /boards/:id. Removes every folder card that opens the board, then
+// deletes it and the boards that only it leads to (folders.js).
 async function deleteBoard({ env, params }) {
   const id = boardIdParam(params[0]);
+  const graph = await loadGraph(env);
+  const board = graph.boards.get(id);
 
-  const board = await env.DB.prepare(
-    "SELECT parent_id FROM boards WHERE id = ?1 AND deleted_at IS NULL"
-  ).bind(id).first();
-
-  if (!board) {
+  if (!board || board.deletedAt !== null) {
     throw new HttpError(404, "Board not found.");
   }
 
-  if (board.parent_id === null) {
+  if (board.parentId === null) {
     throw new HttpError(400, "The Home board can't be deleted.");
   }
 
   const now = Date.now();
+  const cards = graph.links.filter((link) => link.child === id);
+  const links = graph.links.filter((link) => link.child !== id);
+  const rootId = [...graph.boards.values()].find((candidate) => candidate.parentId === null)?.id;
+  const statements = [setDeletedStatement(env, boardsToDelete(graph, id, links, rootId), now)];
 
-  await env.DB.batch([
-    deleteSubtree(env, id, now),
-    env.DB.prepare(
-      `UPDATE items SET deleted_at = ?3, updated_at = ?3
-       WHERE board_id = ?2 AND type = 'folder' AND deleted_at IS NULL
-         AND json_extract(data, '$.childBoardId') = ?1`
-    ).bind(id, board.parent_id, now),
-    env.DB.prepare(
-      "UPDATE boards SET rev = rev + 1, updated_at = ?2 WHERE id = ?1"
-    ).bind(board.parent_id, now)
-  ]);
+  if (cards.length) {
+    statements.push(
+      env.DB.prepare(
+        `UPDATE items SET deleted_at = ?2, updated_at = ?2
+         WHERE id IN (SELECT value FROM json_each(?1))`
+      ).bind(JSON.stringify(cards.map((card) => card.id)), now),
+      env.DB.prepare(
+        `UPDATE boards SET rev = rev + 1, updated_at = ?2
+         WHERE id IN (SELECT value FROM json_each(?1))`
+      ).bind(JSON.stringify([...new Set(cards.map((card) => card.boardId))]), now)
+    );
+  }
 
+  await env.DB.batch(statements);
   return json({ ok: true });
 }
 
@@ -414,21 +370,12 @@ async function applyChanges({ request, env, params }) {
   const boardId = boardIdParam(params[0]);
   const { upserts, deletes } = parseOps(await readJson(request, MAX_CHANGES_BODY_BYTES));
 
-  const childList = [...upserts.values()]
-    .filter((item) => item.type === "folder")
-    .map((item) => item.data.childBoardId);
-
-  if (new Set(childList).size !== childList.length) {
-    throw new HttpError(409, "That folder's board is already used by another card.");
-  }
-
   const ids = JSON.stringify([...upserts.keys(), ...deletes]);
-  const childIds = JSON.stringify(childList);
   const fileIds = [...new Set(
     [...upserts.values()].filter((item) => item.type === "image").map((item) => item.data.fileId)
   )];
 
-  const [boardResult, existingResult, countResult, childResult, linkResult, fileResult] = await env.DB.batch([
+  const [boardResult, existingResult, countResult, fileResult] = await env.DB.batch([
     env.DB.prepare(
       "SELECT id FROM boards WHERE id = ?1 AND deleted_at IS NULL"
     ).bind(boardId),
@@ -439,16 +386,6 @@ async function applyChanges({ request, env, params }) {
     env.DB.prepare(
       "SELECT COUNT(*) AS count FROM items WHERE board_id = ?1 AND deleted_at IS NULL"
     ).bind(boardId),
-    env.DB.prepare(
-      `SELECT id, parent_id, deleted_at
-       FROM boards WHERE id IN (SELECT value FROM json_each(?1))`
-    ).bind(childIds),
-    env.DB.prepare(
-      `SELECT id, json_extract(data, '$.childBoardId') AS child_id
-       FROM items
-       WHERE type = 'folder' AND deleted_at IS NULL
-         AND json_extract(data, '$.childBoardId') IN (SELECT value FROM json_each(?1))`
-    ).bind(childIds),
     env.DB.prepare(
       "SELECT id FROM files WHERE id IN (SELECT value FROM json_each(?1))"
     ).bind(JSON.stringify(fileIds))
@@ -501,57 +438,14 @@ async function applyChanges({ request, env, params }) {
     throw new HttpError(400, `A board can hold at most ${MAX_ITEMS_PER_BOARD.toLocaleString("en")} cards.`);
   }
 
-  // A child board belongs to exactly one live folder card.
-  for (const link of linkResult.results) {
-    const item = upserts.get(link.id);
-
-    if (item?.data.childBoardId !== link.child_id && !deletes.has(link.id)) {
-      throw new HttpError(409, "That folder's board is already used by another card.");
-    }
-  }
-
-  const children = new Map(childResult.results.map((row) => [row.id, row]));
   const now = Date.now();
-  const statements = [];
-
-  for (const item of upserts.values()) {
-    if (item.type !== "folder") {
-      continue;
-    }
-
-    const { childBoardId, name } = item.data;
-    const child = children.get(childBoardId);
-
-    if (!child) {
-      statements.push(env.DB.prepare(
-        `INSERT INTO boards (id, parent_id, name, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?4)`
-      ).bind(childBoardId, boardId, name, now));
-      continue;
-    }
-
-    if (child.parent_id !== boardId) {
-      throw new HttpError(409, "That folder's board belongs elsewhere.");
-    }
-
-    if (child.deleted_at !== null) {
-      statements.push(restoreSubtree(env, childBoardId, child.deleted_at, now));
-    }
-
-    statements.push(env.DB.prepare(
-      `UPDATE boards SET name = ?2, rev = rev + 1, updated_at = ?3
-       WHERE id = ?1 AND name <> ?2`
-    ).bind(childBoardId, name, now));
-  }
-
-  for (const id of deletions) {
-    const row = existing.get(id);
-    const childBoardId = row.type === "folder" ? parseJson(row.data)?.childBoardId : null;
-
-    if (isUuid(childBoardId)) {
-      statements.push(deleteSubtree(env, childBoardId, now));
-    }
-  }
+  const statements = await folderStatements(env, {
+    boardId,
+    upserts,
+    deletedRows: deletions.map((id) => existing.get(id)),
+    existing,
+    now
+  });
 
   if (upserts.size) {
     const rows = [...upserts.values()].map(({ id, type, x, y, w, h, z, color, dataJson }) => (
@@ -592,6 +486,154 @@ async function applyChanges({ request, env, params }) {
   const results = await env.DB.batch(statements);
 
   return json({ rev: results[results.length - 1].results[0].rev });
+}
+
+// Renaming a board renames every folder card that opens it, wherever it is,
+// and bumps those boards' rev so other devices pick it up.
+function renameLinkStatements(env, childBoardId, name, now, skipItemIds = []) {
+  const skip = JSON.stringify(skipItemIds);
+
+  return [
+    env.DB.prepare(
+      `UPDATE boards SET rev = rev + 1, updated_at = ?3
+       WHERE id IN (
+         SELECT board_id FROM items
+         WHERE type = 'folder' AND deleted_at IS NULL
+           AND json_extract(data, '$.childBoardId') = ?1
+           AND json_extract(data, '$.name') <> ?2
+           AND id NOT IN (SELECT value FROM json_each(?4))
+       )`
+    ).bind(childBoardId, name, now, skip),
+    env.DB.prepare(
+      `UPDATE items SET data = json_set(data, '$.name', ?2), updated_at = ?3
+       WHERE type = 'folder' AND deleted_at IS NULL
+         AND json_extract(data, '$.childBoardId') = ?1
+         AND json_extract(data, '$.name') <> ?2
+         AND id NOT IN (SELECT value FROM json_each(?4))`
+    ).bind(childBoardId, name, now, skip)
+  ];
+}
+
+function setDeletedStatement(env, boardIds, now) {
+  return env.DB.prepare(
+    `UPDATE boards SET deleted_at = ?1, updated_at = ?1
+     WHERE deleted_at IS NULL AND id IN (SELECT value FROM json_each(?2))`
+  ).bind(now, JSON.stringify([...boardIds]));
+}
+
+// What folder cards in a change do to boards (folders.js). A new folder
+// creates its board; a pasted or moved folder card opens an existing board,
+// which is restored if it was deleted and moves its home here when the card
+// that held it is gone. A folder may not end up inside itself. Deleting a
+// folder's last card deletes its board and what only that board leads to.
+async function folderStatements(env, { boardId, upserts, deletedRows, existing, now }) {
+  const folders = [...upserts.values()].filter((item) => item.type === "folder");
+  const deletedFolders = deletedRows.filter((row) => row.type === "folder");
+
+  if (!folders.length && !deletedFolders.length) {
+    return [];
+  }
+
+  const graph = await loadGraph(env);
+  const rootId = [...graph.boards.values()].find((board) => board.parentId === null && board.deletedAt === null)?.id;
+  const changedCards = new Set([...deletedRows.map((row) => row.id), ...folders.map((item) => item.id)]);
+  const links = [
+    ...graph.links.filter((link) => !changedCards.has(link.id)),
+    ...folders.map((item) => ({ id: item.id, boardId, child: item.data.childBoardId }))
+  ];
+  const statements = [];
+  const restored = new Set();
+  const rehomed = new Set();
+  const renamed = new Map();
+
+  for (const item of folders) {
+    const { childBoardId, name } = item.data;
+    const child = graph.boards.get(childBoardId);
+
+    if (!child) {
+      statements.push(env.DB.prepare(
+        `INSERT INTO boards (id, parent_id, name, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)`
+      ).bind(childBoardId, boardId, name, now));
+      graph.boards.set(childBoardId, { id: childBoardId, parentId: boardId, name, deletedAt: null });
+      continue;
+    }
+
+    for (const id of boardsToRestore(graph, childBoardId, links)) {
+      graph.boards.get(id).deletedAt = null;
+      restored.add(id);
+    }
+
+    // A pasted card takes the board's current name (it may have been copied
+    // before a rename); renaming an existing card renames the board.
+    const row = existing.get(item.id);
+
+    if (!row || row.deleted_at !== null) {
+      item.data.name = child.name;
+      item.dataJson = JSON.stringify(item.data);
+    } else if (child.name !== name) {
+      renamed.set(childBoardId, name);
+    }
+  }
+
+  for (const item of folders) {
+    const childBoardId = item.data.childBoardId;
+    const row = existing.get(item.id);
+    const newCard = !row || row.deleted_at !== null;
+
+    if (newCard && (childBoardId === rootId || reachable(graph, childBoardId, links).has(boardId))) {
+      throw new HttpError(409, "A folder can't go inside itself.");
+    }
+
+    const child = graph.boards.get(childBoardId);
+    const homeStillHasCard = links.some((link) => link.child === childBoardId && link.boardId === child.parentId);
+
+    if (child.parentId !== boardId && !homeStillHasCard) {
+      rehomed.add(childBoardId);
+    }
+  }
+
+  const doomed = new Set();
+
+  for (const row of deletedFolders) {
+    const childBoardId = parseJson(row.data)?.childBoardId;
+
+    if (isUuid(childBoardId) && !hasLiveLink(graph, childBoardId, links)) {
+      for (const id of boardsToDelete(graph, childBoardId, links, rootId)) {
+        graph.boards.get(id).deletedAt = now;
+        doomed.add(id);
+      }
+    }
+  }
+
+  if (restored.size) {
+    statements.push(env.DB.prepare(
+      `UPDATE boards SET deleted_at = NULL, updated_at = ?1
+       WHERE id IN (SELECT value FROM json_each(?2))`
+    ).bind(now, JSON.stringify([...restored])));
+  }
+
+  if (rehomed.size) {
+    statements.push(env.DB.prepare(
+      `UPDATE boards SET parent_id = ?1, updated_at = ?2
+       WHERE id IN (SELECT value FROM json_each(?3))`
+    ).bind(boardId, now, JSON.stringify([...rehomed])));
+  }
+
+  for (const [childBoardId, name] of renamed) {
+    statements.push(
+      env.DB.prepare(
+        "UPDATE boards SET name = ?2, rev = rev + 1, updated_at = ?3 WHERE id = ?1"
+      ).bind(childBoardId, name, now),
+      ...renameLinkStatements(env, childBoardId, name, now, [...upserts.keys()])
+    );
+  }
+
+  if (doomed.size) {
+    statements.push(setDeletedStatement(env, doomed, now));
+  }
+
+  return statements;
 }
 
 const ROUTES = [

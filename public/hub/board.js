@@ -23,6 +23,7 @@ import { GRID, Viewport } from "./viewport.js";
 const COORDINATE_LIMIT = 1_000_000;
 const MAX_CARD_SIZE = 10_000;
 const MAX_NAME_LENGTH = 100;
+const MAX_ITEMS_PER_BOARD = 2_000;
 const DOUBLE_TAP_MS = 350;
 const DOUBLE_TAP_DISTANCE = 24;
 const LONG_PRESS_MS = 550;
@@ -72,7 +73,8 @@ function defaultData(type) {
 export class BoardView {
   // callbacks: onOps(boardId, ops), onOpenBoard(id), onSelectionChange(count),
   // onViewChange(), onItemsChange(count), onHistoryChange(history),
-  // onFoldersDeleted(names)
+  // onFoldersDeleted(names), onClipboard(action, worldPoint), canPaste(),
+  // isOnPath(boardId), onNotice(message)
   constructor(canvas, world, callbacks) {
     this.canvas = canvas;
     this.world = world;
@@ -142,13 +144,19 @@ export class BoardView {
     });
 
     canvas.addEventListener("contextmenu", (event) => {
-      const card = event.target instanceof Element ? event.target.closest(".card") : null;
+      const target = event.target instanceof Element ? event.target : null;
+      const card = target?.closest(".card");
 
-      if (!card || isTextField(event.target)) {
+      if (isTextField(target)) {
         return;
       }
 
       event.preventDefault();
+
+      if (!card) {
+        this.openCanvasMenu(event.clientX, event.clientY);
+        return;
+      }
 
       if (!this.selected.has(card.dataset.id)) {
         this.setSelection([card.dataset.id]);
@@ -416,6 +424,25 @@ export class BoardView {
       state ? { op: "upsert", item: state } : { op: "delete", id }
     )));
     this.history.push(changedBefore, changedAfter, mergeKey);
+    this.syncFolderNames(changedAfter);
+  }
+
+  // Several folder cards can open one board; a rename shows on all of them
+  // (the server renames the ones it stores).
+  syncFolderNames(states) {
+    for (const state of states.values()) {
+      if (state?.type !== "folder") {
+        continue;
+      }
+
+      for (const item of this.items.values()) {
+        if (item.type === "folder" && item.id !== state.id
+          && item.data.childBoardId === state.data.childBoardId && item.data.name !== state.data.name) {
+          item.data.name = state.data.name;
+          updateCardElement(this.elements.get(item.id), item);
+        }
+      }
+    }
   }
 
   // Undo and redo restore whole card states.
@@ -873,10 +900,20 @@ export class BoardView {
     }
 
     this.finishEditing();
+    this.menuPoint = this.viewport.toWorld(this.viewport.localPoint({ clientX, clientY }));
     this.menu.open(clientX, clientY, {
       colors: new Set(items.map((item) => item.color)),
-      noteSizes: new Set(items.filter((item) => item.type === "note").map((item) => item.data.size))
+      noteSizes: new Set(items.filter((item) => item.type === "note").map((item) => item.data.size)),
+      canPaste: Boolean(this.callbacks.canPaste?.())
     });
+  }
+
+  // Right-click or long-press on empty canvas: Paste.
+  openCanvasMenu(clientX, clientY) {
+    this.finishEditing();
+    this.setSelection([]);
+    this.menuPoint = this.viewport.toWorld(this.viewport.localPoint({ clientX, clientY }));
+    this.menu.open(clientX, clientY, { canvas: true, canPaste: Boolean(this.callbacks.canPaste?.()) });
   }
 
   runMenuAction({ type, value }) {
@@ -898,7 +935,109 @@ export class BoardView {
       this.restackSelected(false);
     } else if (type === "delete") {
       this.deleteSelected();
+    } else if (type === "copy" || type === "cut" || type === "paste") {
+      this.callbacks.onClipboard?.(type, type === "paste" ? this.menuPoint : null);
     }
+  }
+
+  // ---- Copy and paste ------------------------------------------------------
+
+  // The selected cards (with the cards inside selected sections), in stacking order.
+  copySelection() {
+    const ids = new Set([...this.selected].filter((id) => this.items.has(id)));
+
+    for (const id of [...ids]) {
+      const section = this.items.get(id);
+
+      if (section.type !== "section") {
+        continue;
+      }
+
+      for (const other of this.items.values()) {
+        const cx = other.x + other.w / 2;
+        const cy = other.y + other.h / 2;
+
+        if (other !== section && cx >= section.x && cx <= section.x + section.w
+          && cy >= section.y && cy <= section.y + section.h) {
+          ids.add(other.id);
+        }
+      }
+    }
+
+    return [...ids]
+      .map((id) => structuredClone(snapshot(this.items.get(id))))
+      .sort((a, b) => a.z - b.z);
+  }
+
+  // Adds copies of cards, centred as a group on a world point and keeping their
+  // layout; the group's corner snaps to the grid unless `free`. A folder card
+  // copy opens the same board as the original.
+  pasteCards(sources, center, { free } = {}) {
+    if (!this.boardId || !sources.length) {
+      return;
+    }
+
+    this.finishEditing();
+
+    const cards = sources.filter((item) => item.type !== "folder" || !this.callbacks.isOnPath?.(item.data.childBoardId));
+
+    if (cards.length < sources.length) {
+      this.callbacks.onNotice?.("A folder can't go inside itself, so it wasn't pasted.");
+    }
+
+    if (!cards.length) {
+      return;
+    }
+
+    if (this.items.size + cards.length > MAX_ITEMS_PER_BOARD) {
+      this.callbacks.onNotice?.(`A board can hold at most ${MAX_ITEMS_PER_BOARD.toLocaleString("en")} cards.`);
+      return;
+    }
+
+    const left = Math.min(...cards.map((item) => item.x));
+    const top = Math.min(...cards.map((item) => item.y));
+    const right = Math.max(...cards.map((item) => item.x + item.w));
+    const bottom = Math.max(...cards.map((item) => item.y + item.h));
+    let x = center.x - (right - left) / 2;
+    let y = center.y - (bottom - top) / 2;
+
+    if (this.snapping(free)) {
+      x = snapToGrid(x);
+      y = snapToGrid(y);
+    }
+
+    x = Math.round(x);
+    y = Math.round(y);
+
+    // Pasting again on the same spot steps down and right.
+    const taken = (dx, dy) => cards.some((card) => [...this.items.values()].some((item) => (
+      item.type === card.type && item.x === card.x - left + dx && item.y === card.y - top + dy
+    )));
+
+    for (let step = 0; step < 50 && taken(x, y); step++) {
+      x += GRID;
+      y += GRID;
+    }
+
+    let z = this.maxZ();
+    const created = cards.map((source) => {
+      const copy = structuredClone(source);
+      copy.id = crypto.randomUUID();
+      copy.x = source.x - left + x;
+      copy.y = source.y - top + y;
+      copy.z = ++z;
+
+      if (copy.type === "checklist") {
+        copy.data.entries = copy.data.entries.map((entry) => ({ ...entry, id: crypto.randomUUID() }));
+      }
+
+      this.addItem(copy);
+      return copy.id;
+    });
+
+    this.setSelection(created);
+    this.itemsChanged();
+    this.commitChange(new Map(created.map((id) => [id, null])));
   }
 
   // ---- Editing -----------------------------------------------------------
@@ -966,7 +1105,7 @@ export class BoardView {
     const element = target instanceof Element ? target : null;
 
     if (item.type === "folder" && !element?.closest(".folder-name")) {
-      this.callbacks.onOpenBoard(item.data.childBoardId);
+      this.callbacks.onOpenBoard(item.data.childBoardId, item.data.name);
     } else {
       this.startEditing(id, {
         focusEntryId: element?.closest(".entry")?.dataset.entryId,
@@ -1036,7 +1175,21 @@ export class BoardView {
     } else if (event.shiftKey && event.pointerType === "mouse") {
       this.startMarquee(point);
     } else {
-      this.gesture = { type: "pan", start: point, last: point, moved: false, onEmpty: true };
+      const gesture = { type: "pan", start: point, last: point, moved: false, onEmpty: true };
+
+      // Touch: holding still on empty canvas opens the Paste menu.
+      if (event.pointerType !== "mouse") {
+        const { clientX, clientY } = event;
+        gesture.longPress = setTimeout(() => {
+          if (this.gesture === gesture && !gesture.moved) {
+            this.gesture = null;
+            this.lastTap = null;
+            this.openCanvasMenu(clientX, clientY);
+          }
+        }, LONG_PRESS_MS);
+      }
+
+      this.gesture = gesture;
     }
   }
 
