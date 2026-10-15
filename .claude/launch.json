@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wrangler-dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--port", "8787", "--var", "DEV_AUTH_BYPASS:true"],
+      "port": 8787
+    },
+    {
+      "name": "wrangler-dev-noauth",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--port", "8788", "--inspector-port", "9230"],
+      "port": 8788
+    }
+  ]
+}
