@@ -148,7 +148,7 @@ function describe(item) {
     case "image":
       return `Image${data.caption ? `: ${data.caption}` : ""}`;
     case "link":
-      return `Link: ${data.title || hostname(data.url)}`;
+      return `Link: ${data.title || hostname(data.url) || "no address"}`;
     case "section":
       return `Section: ${data.title || "untitled"}`;
     case "folder":
@@ -306,7 +306,7 @@ const RENDERERS = {
       title.removeAttribute("href");
     }
 
-    title.textContent = item.data.title || host || item.data.url;
+    title.textContent = item.data.title || host || item.data.url || "Add a link";
     card.querySelector(".link-host").textContent = host;
   },
 

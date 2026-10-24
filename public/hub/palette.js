@@ -7,7 +7,8 @@
 import { CARD_TYPES } from "./cards.js";
 
 const DRAG_THRESHOLD = 4;
-// A click this soon after a press on the same button came from that press.
+// A click this soon after a pointer is released on a button came from that
+// pointer (browsers also click after a drag or a long press).
 const POINTER_CLICK_WINDOW_MS = 1000;
 
 function createGhost(label, size, zoom) {
@@ -21,8 +22,9 @@ function createGhost(label, size, zoom) {
 }
 
 // tools: buttons with data-card-type. onAdd(type, worldPoint | null, options)
-// where null means "somewhere in view" and options.free means Shift was held
-// (no grid snapping); onHint(label) after a tap without a drag.
+// where null means "somewhere in view", options.free means Shift was held
+// (no grid snapping) and options.keepBlank keeps the card even if it's left
+// empty; onHint(label) after a tap without a drag.
 export function initPalette({ tools, canvas, view, onAdd, onHint }) {
   let drag = null;
 
@@ -40,7 +42,7 @@ export function initPalette({ tools, canvas, view, onAdd, onHint }) {
   for (const tool of tools) {
     const type = tool.dataset.cardType;
     const label = tool.querySelector(".tool-label")?.textContent ?? type;
-    let pressedAt = 0;
+    let releasedAt = 0;
 
     tool.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || !view.boardId) {
@@ -48,7 +50,6 @@ export function initPalette({ tools, canvas, view, onAdd, onHint }) {
       }
 
       event.preventDefault();
-      pressedAt = Date.now();
       drag = { tool, type, pointerId: event.pointerId, x: event.clientX, y: event.clientY, ghost: null };
 
       try {
@@ -91,6 +92,8 @@ export function initPalette({ tools, canvas, view, onAdd, onHint }) {
     });
 
     tool.addEventListener("pointerup", (event) => {
+      releasedAt = Date.now();
+
       if (drag?.tool !== tool || event.pointerId !== drag.pointerId) {
         return;
       }
@@ -101,15 +104,18 @@ export function initPalette({ tools, canvas, view, onAdd, onHint }) {
       if (!dragged) {
         onHint(label);
       } else if (overBoard(event)) {
-        onAdd(type, view.worldPointAt(event), { free: event.shiftKey });
+        onAdd(type, view.worldPointAt(event), { free: event.shiftKey, keepBlank: true });
       }
     });
 
-    tool.addEventListener("pointercancel", end);
+    tool.addEventListener("pointercancel", () => {
+      releasedAt = Date.now();
+      end();
+    });
 
     tool.addEventListener("click", () => {
-      if (Date.now() - pressedAt > POINTER_CLICK_WINDOW_MS) {
-        onAdd(type, null);
+      if (Date.now() - releasedAt > POINTER_CLICK_WINDOW_MS) {
+        onAdd(type, null, { keepBlank: true });
       }
     });
   }

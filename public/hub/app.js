@@ -656,7 +656,7 @@ initPalette({
     } else if (point) {
       view.createCard(type, point, options);
     } else {
-      view.createCardInView(type);
+      view.createCardInView(type, options);
     }
   },
   onHint: (label) => showToast(`Drag "${label}" onto the board to add it.`)

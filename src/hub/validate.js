@@ -181,7 +181,9 @@ const DATA_VALIDATORS = {
       invalid("Invalid link.");
     }
 
-    return { url: cleanUrl(data.url), title: cleanLine(data.title, LIMITS.nameLength, "Title") };
+    // An empty address is a link card that hasn't been filled in yet.
+    const url = typeof data.url === "string" && !data.url.trim() ? "" : cleanUrl(data.url);
+    return { url, title: cleanLine(data.title, LIMITS.nameLength, "Title") };
   },
 
   section(data) {

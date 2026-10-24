@@ -161,11 +161,17 @@ describe("links, images and sections", () => {
   });
 
   it("rejects other schemes and overlong links", () => {
-    for (const url of ["javascript:alert(1)", "data:text/html,x", "ftp://x.org", "//example.com", "example.com", ""]) {
+    for (const url of ["javascript:alert(1)", "data:text/html,x", "ftp://x.org", "//example.com", "example.com"]) {
       rejects(link({ url, title: "" }), /link|http/i);
     }
 
     rejects(link({ url: `https://example.com/${"a".repeat(2048)}`, title: "" }), /Invalid link/);
+    rejects(link({ title: "" }), /Invalid link/);
+  });
+
+  it("accepts a link card with no address yet", () => {
+    assert.equal(validateItem(link({ url: "", title: "" })).data.url, "");
+    assert.equal(validateItem(link({ url: "   ", title: "Later" })).data.url, "");
   });
 
   it("validates images and sections", () => {

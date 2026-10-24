@@ -1,6 +1,6 @@
 // In-place editors, one per card type. startEditor() sets up the editing UI
 // and returns { finish }, which restores the static card and returns false
-// when a new card should be discarded because it was left empty.
+// when a new card was left empty (the board decides whether to discard it).
 // Values reach the item only as plain strings.
 
 import { addEntry, removeEntry } from "./checklist.js";
@@ -108,7 +108,7 @@ function noteEditor(view, item, card, { fresh, focusTitle }) {
   const onEscape = (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      view.finishEditing();
+      view.finishEditing({ cancelled: true });
     }
   };
 
@@ -194,7 +194,7 @@ function linkEditor(view, item, card, { fresh }) {
   form.addEventListener("keydown", (event) => {
     if (event.key === "Escape" || (event.key === "Enter" && event.target === name)) {
       event.preventDefault();
-      view.finishEditing();
+      view.finishEditing({ cancelled: event.key === "Escape" });
     } else if (event.key === "Enter") {
       event.preventDefault();
       focusEnd(name);
@@ -218,7 +218,7 @@ function linkEditor(view, item, card, { fresh }) {
       }
 
       item.data.title = oneLine(name.value).trim();
-      return Boolean(item.data.url);
+      return !(fresh && !item.data.url && !item.data.title);
     }
   };
 }
@@ -290,7 +290,7 @@ function checklistEditor(view, item, card, { fresh, focusEntryId, appendEntry })
 
     if (event.key === "Escape") {
       event.preventDefault();
-      view.finishEditing();
+      view.finishEditing({ cancelled: true });
     } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       const next = list[index + (event.key === "ArrowUp" ? -1 : 1)];
 

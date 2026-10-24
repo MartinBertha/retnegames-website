@@ -517,8 +517,9 @@ export class BoardView {
 
   // Adds a card centred on a world point (snapped to the grid unless `free`).
   // New cards with an editor open it; the card is saved (and undoable) once
-  // that edit ends.
-  createCard(type, center, { data, size, edit = true, free } = {}) {
+  // that edit ends. Left empty, it's removed unless `keepBlank` (cards from
+  // the toolbar), though cancelling with Escape still removes it.
+  createCard(type, center, { data, size, edit = true, free, keepBlank = false } = {}) {
     if (!this.boardId) {
       return null;
     }
@@ -542,7 +543,7 @@ export class BoardView {
     this.itemsChanged();
 
     if (edit) {
-      this.startEditing(item.id, { fresh: true, selectAll: type === "folder" });
+      this.startEditing(item.id, { fresh: true, keepBlank, selectAll: type === "folder" });
     } else {
       this.growToContent(item.id);
       this.commitChange(new Map([[item.id, null]]));
@@ -574,8 +575,8 @@ export class BoardView {
     return center;
   }
 
-  createCardInView(type) {
-    this.createCard(type, this.freeSpotInView(type));
+  createCardInView(type, options = {}) {
+    this.createCard(type, this.freeSpotInView(type), options);
   }
 
   // Where pasted content goes: under the pointer if it's over the canvas.
@@ -1056,12 +1057,19 @@ export class BoardView {
 
     this.setSelection([id]);
     card.classList.add("is-editing");
-    this.editing = { id, before, restoreFocus: Boolean(options.restoreFocus), ...startEditor(this, item, card, options) };
+    this.editing = {
+      id,
+      before,
+      restoreFocus: Boolean(options.restoreFocus),
+      keepBlank: Boolean(options.keepBlank),
+      ...startEditor(this, item, card, options)
+    };
     requestAnimationFrame(() => this.keepEditorInView());
   }
 
-  // One undo step per edit. A new card left empty is removed.
-  finishEditing() {
+  // One undo step per edit. A new card left empty is removed, unless it came
+  // from the toolbar and the edit wasn't cancelled (Escape).
+  finishEditing({ cancelled = false } = {}) {
     const editing = this.editing;
 
     if (!editing) {
@@ -1080,7 +1088,7 @@ export class BoardView {
 
     card.classList.remove("is-editing");
 
-    if (keep === false) {
+    if (keep === false && (cancelled || !editing.keepBlank)) {
       this.removeItem(editing.id);
       this.renderSelection();
       this.itemsChanged();

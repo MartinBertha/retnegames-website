@@ -133,7 +133,7 @@ On first run (no boards exist), the API creates a root board named **Home**.
 | `note` | `{ "title": string, "text": string, "size": "s" \| "m" \| "l" }` optional one-line title (shown larger and bold) above plain, multi-line text; `size` is the text size. URLs are auto-linked at render time. Notes saved without `title` have none. |
 | `checklist` | `{ "title": string, "entries": [ { "id": uuid, "text": string, "done": boolean } ] }` |
 | `image` | `{ "fileId": uuid, "caption": string }` |
-| `link` | `{ "url": string, "title": string }` (`http` or `https` only) |
+| `link` | `{ "url": string, "title": string }` (`http` or `https` only, or `""` for a link not filled in yet) |
 | `section` | `{ "title": string }` a labelled coloured area drawn behind other cards |
 | `folder` | `{ "name": string, "childBoardId": uuid }` |
 
@@ -191,7 +191,7 @@ Notes:
 
 ### Layout
 - **Top bar:** breadcrumb (Home › Game › Art), save status ("Saved", "Saving…", "Offline, retrying"), theme toggle, export and import (menu).
-- **Add-card toolbar** (bottom on mobile, left on desktop): Note, Checklist, Image (file picker), Link, Section, Folder. Cards are added by **dragging** a button onto the canvas (an outline of the card follows the pointer and the card lands where it is dropped; dropping Image opens the file picker for that spot). A plain click only shows a hint; Enter or Space on a focused button adds the card in the middle of the view.
+- **Add-card toolbar** (bottom on mobile, left on desktop): Note, Checklist, Image (file picker), Link, Section, Folder. Cards are added by **dragging** a button onto the canvas (an outline of the card follows the pointer and the card lands where it is dropped; dropping Image opens the file picker for that spot). A plain click only shows a hint; Enter or Space on a focused button adds the card in the middle of the view. A new card opens for editing; a toolbar card left empty stays on the board so it can be filled in later, unless editing is cancelled with Escape.
 - **Canvas:** fills the rest of the screen. A subtle dot grid that scales with zoom.
 - **Navigation state** in the URL hash: `#/b/<boardId>`, so refresh and browser back or forward work. No hash means the root board.
 
@@ -209,13 +209,13 @@ Notes:
 - **Context menu** (right-click, or long-press on touch): Colour, Copy, Cut, Paste, Duplicate, Bring to front, Send to back, Delete. Right-click or long-press on empty canvas offers Paste.
 - **Copy, cut and paste:** `Ctrl/Cmd+C`, `X`, `V` (or the menu) copy the selected cards (a section brings the cards inside it) to the system clipboard as `application/x-retne-hub-cards` JSON plus readable text, and to a per-device store for the menu's Paste. Paste works on any board: the copies keep their layout, centred under the pointer (or in view), with the group's corner on the grid (`Ctrl/Cmd+Shift+V` places freely); pasting again on the same spot steps one grid cell down and right. Copies are identical except for new ids (checklist entries too); images reuse the same file; folder copies open the same board. Paste is one undo step; cut is copy plus delete. In text fields the keys work on text as usual.
 - **Z-order** via the `z` field; newly created or clicked cards come to the front.
-- **Double-click** a note, checklist title, link or section title to edit in place. **Double-click a folder** opens its board. **Double-click empty canvas** creates a new note at that point.
+- **Double-click** a note, checklist title, link or section title to edit in place. **Double-click a folder** opens its board. **Double-click empty canvas** creates a new note at that point (removed again if it's left empty).
 
 ### Per-card details
 - **Note:** a text area while editing; rendered as plain text with auto-linked URLs. Text size S, M or L from the context menu.
 - **Checklist:** title plus entries with checkboxes; press Enter in an entry to add the next one; follows the ordering rule in section 4, with a short animation (disabled under `prefers-reduced-motion`).
 - **Image:** shows the image scaled to the card with an optional caption; resize keeps the aspect ratio by default (only the right edge snaps; the height follows), and holding Alt/Option resizes freely. The client downscales images larger than 2,400 px on the long edge before upload.
-- **Link:** shows title and hostname; click opens the URL in a new tab with `rel="noopener noreferrer"`. No remote fetching of titles or favicons in v1 (the user types the title; default to the hostname).
+- **Link:** shows title and hostname; click opens the URL in a new tab with `rel="noopener noreferrer"`. No remote fetching of titles or favicons in v1 (the user types the title; default to the hostname). A link with no address yet shows "Add a link" and opens nothing.
 - **Section:** a large translucent labelled rectangle behind other cards.
 - **Folder:** a folder icon with the board's name underneath; rename in place.
 
