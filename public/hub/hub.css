@@ -711,7 +711,7 @@ body.is-placing * {
   font-size: 28px;
 }
 
-/* Folders */
+/* Folders: just the icon with the name below, no card behind them. */
 
 .card-folder {
   display: flex;
@@ -720,14 +720,24 @@ body.is-placing * {
   justify-content: center;
   gap: 8px;
   padding: 12px;
+  background: none;
+  box-shadow: none;
 }
 
 .folder-icon {
   flex: none;
-  width: 64px;
-  height: 52px;
+  width: 80px;
+  height: 65px;
   fill: var(--accent);
   opacity: 0.85;
+}
+
+/* A colour tints the icon. */
+.card-folder[data-color] .folder-icon {
+  fill: color-mix(in srgb, var(--card-bg), var(--mix-contrast) 25%);
+  stroke: color-mix(in srgb, var(--card-bg), var(--mix-contrast) 50%);
+  stroke-width: 2;
+  opacity: 1;
 }
 
 .folder-name {

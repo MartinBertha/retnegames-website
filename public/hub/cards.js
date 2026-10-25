@@ -167,9 +167,12 @@ export function createCardElement(item) {
   card.setAttribute("aria-roledescription", "card");
   card.append(...STRUCTURE[item.type]());
 
-  const handle = el("div", "resize-handle");
-  handle.setAttribute("aria-hidden", "true");
-  card.append(handle);
+  // Folders keep their standard size.
+  if (item.type !== "folder") {
+    const handle = el("div", "resize-handle");
+    handle.setAttribute("aria-hidden", "true");
+    card.append(handle);
+  }
 
   updateCardElement(card, item);
   return card;

@@ -49,7 +49,7 @@ None of these values are secrets. There are no new secrets in v1.
 ### In v1
 - Boards: infinite canvas, pan and zoom (mouse and touch).
 - Card types: **text note, checklist, image, link, section, folder**.
-- Folder card: double-click opens a new blank board nested under the current one. Breadcrumb navigation back up.
+- Folder card: a folder icon with its name below (no card background; a colour tints the icon); double-click opens a new blank board nested under the current one. Breadcrumb navigation back up.
 - Drag, resize, multi-select, duplicate, copy, cut and paste (also between boards), delete, colour, bring to front or send to back, undo and redo.
 - Drag-drop and paste for images, URLs and text.
 - Autosave to the server, syncing across devices (desktop and phone).
@@ -204,7 +204,7 @@ Notes:
 
 ### Cards
 - **Select:** click or tap; Shift-click adds to the selection; drag a marquee on empty canvas to select several.
-- **Move:** drag. **Resize:** handle on the bottom-right corner. Moving a **section** also moves the cards whose centre is inside it at the moment the drag starts.
+- **Move:** drag. **Resize:** handle on the bottom-right corner (not on folders, which keep their standard size). Moving a **section** also moves the cards whose centre is inside it at the moment the drag starts.
 - **Colour:** each card has a colour from a palette of about 8 muted tones (card background, adapting to dark and light themes).
 - **Context menu** (right-click, or long-press on touch): Colour, Copy, Cut, Paste, Duplicate, Bring to front, Send to back, Delete. Right-click or long-press on empty canvas offers Paste.
 - **Copy, cut and paste:** `Ctrl/Cmd+C`, `X`, `V` (or the menu) copy the selected cards (a section brings the cards inside it) to the system clipboard as `application/x-retne-hub-cards` JSON plus readable text, and to a per-device store for the menu's Paste. Paste works on any board: the copies keep their layout, centred under the pointer (or in view), with the group's corner on the grid (`Ctrl/Cmd+Shift+V` places freely); pasting again on the same spot steps one grid cell down and right. Copies are identical except for new ids (checklist entries too); images reuse the same file; folder copies open the same board. Paste is one undo step; cut is copy plus delete. In text fields the keys work on text as usual.

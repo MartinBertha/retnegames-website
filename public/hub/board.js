@@ -53,6 +53,17 @@ function snapshot({ id, type, x, y, w, h, z, color, data }) {
   return { id, type, x, y, w, h, z, color, data };
 }
 
+// Folders can't be resized: they always have the standard size, including
+// ones resized before that rule.
+function withFixedSize(item) {
+  if (item.type === "folder") {
+    item.w = CARD_TYPES.folder.w;
+    item.h = CARD_TYPES.folder.h;
+  }
+
+  return item;
+}
+
 function defaultData(type) {
   switch (type) {
     case "note":
@@ -355,7 +366,7 @@ export class BoardView {
   // ---- Cards -------------------------------------------------------------
 
   addItem(item) {
-    const copy = structuredClone(snapshot(item));
+    const copy = withFixedSize(structuredClone(snapshot(item)));
     const element = createCardElement(copy);
     this.items.set(copy.id, copy);
     this.elements.set(copy.id, element);
@@ -384,7 +395,7 @@ export class BoardView {
       return;
     }
 
-    Object.assign(item, structuredClone(snapshot(state)));
+    Object.assign(item, withFixedSize(structuredClone(snapshot(state))));
     updateCardElement(this.elements.get(id), item);
   }
 
