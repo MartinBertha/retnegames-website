@@ -70,6 +70,9 @@ const saver = new Saver({
     if (error.status === 409 && error.message) {
       showToast(error.message, { tone: "error", timeout: 7000 });
       putBackCutFolders(boardId);
+    } else if (error.status !== 404) {
+      // Say why, so the card can be fixed before the board reloads it.
+      showToast(`A change wasn't saved. ${error.message}`, { tone: "error", timeout: 9000 });
     }
 
     // Show what the server kept.

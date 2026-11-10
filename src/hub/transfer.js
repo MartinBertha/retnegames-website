@@ -13,8 +13,39 @@ const MAX_IMPORT_BOARDS = 1_000;
 const MAX_IMPORT_ITEMS = 50_000;
 const MAX_ITEMS_PER_BOARD = 2_000;
 const MAX_VIEW_COORDINATE = 2_000_000;
-// Items per INSERT statement: keeps each bound JSON parameter well under 2 MB.
+// Per INSERT statement: at most this many items and this many bytes of JSON,
+// which keeps each bound parameter well under D1's 2 MB limit even when the
+// cards are large (one card's row is at most about 150 KB).
 const ITEMS_PER_STATEMENT = 400;
+const BYTES_PER_STATEMENT = 1_000_000;
+
+// Splits rows into JSON arrays (as text), each within the limits above.
+export function chunkRows(rows, maxRows = ITEMS_PER_STATEMENT, maxBytes = BYTES_PER_STATEMENT) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  let parts = [];
+  let bytes = 2;
+
+  for (const row of rows) {
+    const part = JSON.stringify(row);
+    const size = encoder.encode(part).length + 1;
+
+    if (parts.length && (parts.length === maxRows || bytes + size > maxBytes)) {
+      chunks.push(`[${parts.join(",")}]`);
+      parts = [];
+      bytes = 2;
+    }
+
+    parts.push(part);
+    bytes += size;
+  }
+
+  if (parts.length) {
+    chunks.push(`[${parts.join(",")}]`);
+  }
+
+  return chunks;
+}
 const FOLDER_SIZE = { w: 160, h: 150 };
 const GAP = 40;
 
@@ -307,7 +338,7 @@ export async function importExport({ request, env }) {
     ).bind(now, JSON.stringify(boardRows))
   ];
 
-  for (let start = 0; start < itemRows.length; start += ITEMS_PER_STATEMENT) {
+  for (const chunk of chunkRows(itemRows)) {
     statements.push(env.DB.prepare(
       `INSERT INTO items (id, board_id, type, x, y, w, h, z, color, data, created_at, updated_at)
        SELECT json_extract(value, '$.id'), json_extract(value, '$.boardId'), json_extract(value, '$.type'),
@@ -316,7 +347,7 @@ export async function importExport({ request, env }) {
               json_extract(value, '$.z'), json_extract(value, '$.color'),
               json_extract(value, '$.data'), ?1, ?1
        FROM json_each(?2)`
-    ).bind(now, JSON.stringify(itemRows.slice(start, start + ITEMS_PER_STATEMENT))));
+    ).bind(now, chunk));
   }
 
   statements.push(env.DB.prepare(

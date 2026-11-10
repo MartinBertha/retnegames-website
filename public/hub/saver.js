@@ -1,7 +1,9 @@
 // Autosave queue (docs/hub-spec.md, section 6 "Saving"). Card changes are
 // coalesced per card (the latest state wins) and sent to /changes about 800 ms
 // after the last edit, one request at a time. Failed requests keep their ops
-// and retry with exponential backoff up to 30 s. Queues are per board, so
+// and retry with exponential backoff up to 30 s. A batch the server rejects
+// is sent again card by card, so one bad card doesn't take the others with
+// it. Queues are per board, so
 // changes still save after navigating to another board.
 
 const DEBOUNCE_MS = 800;
@@ -136,27 +138,77 @@ export class Saver {
     return promise;
   }
 
-  async send(boardId, ops, keepalive) {
+  // One request. Null once saved, the error when the server rejects the ops
+  // for good; throws when the server can't be reached.
+  async attempt(boardId, ops, keepalive) {
     try {
       const { rev } = await this.save(boardId, [...ops.values()], { keepalive });
-      this.retryDelay = 0;
-      this.failure = null;
-      this.rejected = false;
       this.onSaved?.(boardId, rev);
-      return true;
+      return null;
     } catch (error) {
       if (PERMANENT_STATUSES.has(error?.status)) {
-        this.rejected = true;
-        this.onRejected?.(error, boardId);
-
-        if (error.status === 404) {
-          this.pending.delete(boardId);
-        }
-
-        return true;
+        return error;
       }
 
-      // Put the ops back unless newer changes to the same cards were queued.
+      throw error;
+    }
+  }
+
+  reject(error, boardId) {
+    this.onRejected?.(error, boardId);
+
+    if (error.status === 404) {
+      this.pending.delete(boardId);
+    }
+  }
+
+  // Saves ops, removing each from `ops` once the server has answered for it.
+  // A batch the server rejects for good is sent again one card at a time, so
+  // only the cards it won't take are lost. Returns true if any were rejected;
+  // throws when the server can't be reached (what's left in `ops` is unsent).
+  async deliver(boardId, ops, keepalive) {
+    const error = await this.attempt(boardId, ops, keepalive);
+
+    if (!error) {
+      ops.clear();
+      return false;
+    }
+
+    // A missing board (404) rejects everything sent to it.
+    if (ops.size === 1 || error.status === 404) {
+      ops.clear();
+      this.reject(error, boardId);
+      return true;
+    }
+
+    let rejected = false;
+
+    for (const [key, op] of [...ops]) {
+      const single = await this.attempt(boardId, new Map([[key, op]]), keepalive);
+      ops.delete(key);
+
+      if (single) {
+        rejected = true;
+        this.reject(single, boardId);
+
+        if (single.status === 404) {
+          ops.clear();
+          break;
+        }
+      }
+    }
+
+    return rejected;
+  }
+
+  async send(boardId, ops, keepalive) {
+    try {
+      this.rejected = await this.deliver(boardId, ops, keepalive);
+      this.retryDelay = 0;
+      this.failure = null;
+      return true;
+    } catch (error) {
+      // Put the unsent ops back unless newer changes to the same cards were queued.
       let board = this.pending.get(boardId);
 
       if (!board) {

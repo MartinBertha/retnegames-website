@@ -1,4 +1,5 @@
 import { handleHub, isHubPath } from "./hub/index.js";
+import { HttpError, readBytes } from "./hub/http.js";
 
 const ALLOWED_ORIGINS = new Set([
   "https://retne.games",
@@ -48,20 +49,26 @@ async function verifyTurnstile(token, secret, ip, expectedHostname) {
     formData.append("remoteip", ip);
   }
 
-  const response = await fetch(
-    "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded"
-      },
-      body: formData
-    }
-  );
+  let response;
 
-  const result = await response.json().catch(() => ({}));
+  try {
+    response = await fetch(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded"
+        },
+        body: formData
+      }
+    );
+  } catch {
+    return false;
+  }
 
-  if (!response.ok) {
+  const result = await response.json().catch(() => null);
+
+  if (!response.ok || !result) {
     return false;
   }
 
@@ -156,14 +163,6 @@ export default {
         return json({ error: "Forbidden." }, 403);
       }
 
-      const contentLength = Number(
-        request.headers.get("Content-Length") || 0
-      );
-
-      if (contentLength > MAX_BODY_BYTES) {
-        return json({ error: "Request too large." }, 413, origin);
-      }
-
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
 
       if (env.CONTACT_RATE_LIMITER) {
@@ -182,11 +181,21 @@ export default {
         }
       }
 
+      // Reads at most MAX_BODY_BYTES, whatever Content-Length claims.
       let body;
 
       try {
-        body = await request.json();
-      } catch {
+        const bytes = await readBytes(request, MAX_BODY_BYTES);
+        body = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 413) {
+          return json({ error: "Request too large." }, 413, origin);
+        }
+
+        return json({ error: "Invalid request." }, 400, origin);
+      }
+
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
         return json({ error: "Invalid request." }, 400, origin);
       }
 
@@ -247,35 +256,41 @@ export default {
         );
       }
 
-      const emailResponse = await fetch(
-        "https://api.resend.com/emails",
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${env.RESEND_API_KEY}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            from: "retne.games <hello@retne.games>",
-            to: [EMAIL_ADDRESS],
-            reply_to: email,
-            subject: `[retne.games] ${subject}`,
-            text: [
-              "New message from retne.games",
-              "",
-              `From: ${email}`,
-              `Subject: ${subject}`,
-              "",
-              message,
-              "",
-              "---",
-              "Sent via retne.games contact form."
-            ].join("\n")
-          })
-        }
-      );
+      let emailResponse = null;
 
-      if (!emailResponse.ok) {
+      try {
+        emailResponse = await fetch(
+          "https://api.resend.com/emails",
+          {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              from: "retne.games <hello@retne.games>",
+              to: [EMAIL_ADDRESS],
+              reply_to: email,
+              subject: `[retne.games] ${subject}`,
+              text: [
+                "New message from retne.games",
+                "",
+                `From: ${email}`,
+                `Subject: ${subject}`,
+                "",
+                message,
+                "",
+                "---",
+                "Sent via retne.games contact form."
+              ].join("\n")
+            })
+          }
+        );
+      } catch {
+        // Handled below, like any other failed send.
+      }
+
+      if (!emailResponse?.ok) {
         return json(
           {
             error: "We couldn't send your message. Please try again later."
@@ -285,7 +300,7 @@ export default {
         );
       }
 
-      const emailResult = await emailResponse.json();
+      const emailResult = await emailResponse.json().catch(() => null);
 
       if (!emailResult?.id) {
         return json(
