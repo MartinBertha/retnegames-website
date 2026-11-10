@@ -271,7 +271,7 @@ export default {
               from: "retne.games <hello@retne.games>",
               to: [EMAIL_ADDRESS],
               reply_to: email,
-              subject: `[retne.games] ${subject}`,
+              subject: `[retne.games website form] ${subject}`,
               text: [
                 "New message from retne.games",
                 "",
