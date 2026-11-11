@@ -17,14 +17,17 @@ import {
 } from "./cards.js";
 import {
   DEFAULT_LENGTH,
+  DEFAULT_RISE,
   MIN_LENGTH,
   SIDES,
   attachedCard,
-  boundsOf,
+  boundsOfPoints,
   cardsNear,
   endPosition,
+  fillDirections,
   hotspotPoint,
   keepApart,
+  linePoints,
   nearestHotspot,
   segmentTouchesRect
 } from "./connectors.js";
@@ -296,10 +299,12 @@ export class BoardView {
     const center = this.worldPointAt(event);
     let rect;
 
-    if (type === "connector") {
-      const { start } = this.linePlacement(center, event.shiftKey);
-      const band = CARD_TYPES.connector.h;
-      rect = { x: start.x, y: start.y - band / 2, w: DEFAULT_LENGTH, h: band };
+    if (type === "connector" || type === "elbow") {
+      const shape = type === "elbow" ? "elbow" : "straight";
+      const { start } = this.linePlacement(center, event.shiftKey, shape);
+      // The outline of a straight line is a band round it; a Z's is its box.
+      const { h } = CARD_TYPES[type];
+      rect = { x: start.x, y: shape === "elbow" ? start.y : start.y - h / 2, w: DEFAULT_LENGTH, h };
     } else {
       rect = this.placementRect(type, center, { free: event.shiftKey });
     }
@@ -579,8 +584,8 @@ export class BoardView {
 
     this.finishEditing();
 
-    if (type === "connector") {
-      return this.createConnector(center, { free });
+    if (type === "connector" || type === "elbow") {
+      return this.createConnector(center, { free, shape: type === "elbow" ? "elbow" : "straight" });
     }
 
     const { x, y, w, h } = this.placementRect(type, center, { size, free });
@@ -998,7 +1003,12 @@ export class BoardView {
       }
     }
 
-    Object.assign(line, boundsOf(line.data.start, line.data.end));
+    if (line.data.shape === "elbow") {
+      fillDirections(line.data);
+    }
+
+    // The box spans the whole line, corners included.
+    Object.assign(line, boundsOfPoints(linePoints(line.data)));
     updateCardElement(this.elements.get(id), line);
   }
 
@@ -1017,11 +1027,13 @@ export class BoardView {
     }
   }
 
-  // A short horizontal line centred on a world point; its ends land on the grid
-  // when snapping.
-  linePlacement(center, free) {
+  // A short line centred on a world point: horizontal, or for a right-angle
+  // line (shape "elbow") a Z two grid cells tall. Its ends land on the grid when
+  // snapping.
+  linePlacement(center, free, shape = "straight") {
+    const rise = shape === "elbow" ? DEFAULT_RISE : 0;
     let x = center.x - DEFAULT_LENGTH / 2;
-    let y = center.y;
+    let y = center.y - rise / 2;
 
     if (this.snapping(free)) {
       x = snapToGrid(x);
@@ -1031,20 +1043,23 @@ export class BoardView {
     x = clampCoordinate(x);
     y = clampCoordinate(y);
 
-    return { start: { x, y }, end: { x: clampCoordinate(x + DEFAULT_LENGTH), y } };
+    return { start: { x, y }, end: { x: clampCoordinate(x + DEFAULT_LENGTH), y: clampCoordinate(y + rise) } };
   }
 
-  createConnector(center, { free } = {}) {
-    const { start, end } = this.linePlacement(center, free);
+  createConnector(center, { free, shape = "straight" } = {}) {
+    const { start, end } = this.linePlacement(center, free, shape);
+    const data = shape === "elbow" ? { shape, start, end } : { start, end };
     const item = this.addItem({
       id: crypto.randomUUID(),
       type: "connector",
-      ...boundsOf(start, end),
+      ...boundsOfPoints([start, end]),
       z: this.maxZ() + 1,
       color: null,
-      data: { start, end }
+      data
     });
 
+    // Gives a right-angle line its directions and its final box.
+    this.syncConnector(item.id);
     this.setSelection([item.id]);
     this.itemsChanged();
     this.commitChange(new Map([[item.id, null]]));
@@ -1117,6 +1132,34 @@ export class BoardView {
     this.syncConnector(id);
   }
 
+  // Switches the selected lines between straight and right-angle ("elbow"). The
+  // ends and their attachments stay; a right-angle line works out its
+  // directions afresh (attached ends from their sides, free ends from where the
+  // other end is).
+  setLineShape(shape) {
+    this.finishEditing();
+
+    const ids = [...this.selected].filter((id) => this.items.get(id)?.type === "connector");
+    const before = this.capture(ids);
+
+    for (const id of ids) {
+      const line = this.items.get(id);
+
+      delete line.data.start.dir;
+      delete line.data.end.dir;
+
+      if (shape === "elbow") {
+        line.data.shape = "elbow";
+      } else {
+        delete line.data.shape;
+      }
+
+      this.syncConnector(id);
+    }
+
+    this.commitChange(before);
+  }
+
   // Pointer down on a line's end handle: drag it to stretch the line, onto a
   // hotspot to attach it, away from one to let go.
   startEndpoint(id, which, event, point) {
@@ -1150,12 +1193,19 @@ export class BoardView {
       awayFrom: otherPoint
     });
 
+    // A right-angle line's end keeps the direction it had when it moves.
+    const dir = line.data[gesture.which].dir;
+
     if (hit) {
       line.data[gesture.which] = { x: hit.x, y: hit.y, item: hit.item, side: hit.side };
     } else {
       let spot = this.snapping() ? { x: snapToGrid(world.x), y: snapToGrid(world.y) } : world;
       spot = keepApart(spot, otherPoint, MIN_LENGTH);
       line.data[gesture.which] = { x: clampCoordinate(spot.x), y: clampCoordinate(spot.y) };
+    }
+
+    if (dir) {
+      line.data[gesture.which].dir = dir;
     }
 
     this.syncConnector(line.id);
@@ -1220,6 +1270,7 @@ export class BoardView {
     this.menu.open(clientX, clientY, {
       colors: new Set(items.map((item) => item.color)),
       noteSizes: new Set(items.filter((item) => item.type === "note").map((item) => item.data.size)),
+      lineShapes: new Set(items.filter((item) => item.type === "connector").map((item) => item.data.shape ?? "straight")),
       canPaste: Boolean(this.callbacks.canPaste?.())
     });
   }
@@ -1243,6 +1294,8 @@ export class BoardView {
           item.data.size = value;
         }
       });
+    } else if (type === "lineShape") {
+      this.setLineShape(value);
     } else if (type === "duplicate") {
       this.duplicateSelected();
     } else if (type === "front") {
@@ -1976,11 +2029,9 @@ export class BoardView {
         inside = item.x >= from.x && item.x + item.w <= to.x && item.y >= from.y && item.y + item.h <= to.y;
       } else if (item.type === "connector") {
         // A line is touched where it crosses the marquee, not by its box.
-        inside = segmentTouchesRect(
-          item.data.start,
-          item.data.end,
-          { left: from.x, top: from.y, right: to.x, bottom: to.y }
-        );
+        const rect = { left: from.x, top: from.y, right: to.x, bottom: to.y };
+        const points = linePoints(item.data);
+        inside = points.slice(1).some((point, index) => segmentTouchesRect(points[index], point, rect));
       } else {
         inside = item.x < to.x && item.x + item.w > from.x && item.y < to.y && item.y + item.h > from.y;
       }

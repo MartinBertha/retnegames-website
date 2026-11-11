@@ -1139,6 +1139,7 @@ body.is-placing * {
   stroke: var(--accent);
   stroke-width: max(7px, calc(6px / var(--zoom, 1)));
   stroke-linecap: round;
+  stroke-linejoin: round;
   opacity: 0;
 }
 
@@ -1156,6 +1157,7 @@ body.is-placing * {
   stroke: transparent;
   stroke-width: calc(16px / var(--zoom, 1));
   stroke-linecap: round;
+  stroke-linejoin: round;
   pointer-events: stroke;
   cursor: move;
 }

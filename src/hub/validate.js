@@ -24,6 +24,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 const NOTE_SIZES = new Set(["s", "m", "l"]);
 // The sides of a card a line can attach to (the middle of each).
 const LINE_SIDES = new Set(["top", "right", "bottom", "left"]);
+// The way a right-angle line leaves one of its ends.
+const LINE_DIRECTIONS = new Set(["up", "right", "down", "left"]);
 
 function invalid(message) {
   throw new HttpError(400, message);
@@ -138,6 +140,15 @@ function cleanLineEnd(end) {
     y: boundedNumber(end.y, -LIMITS.coordinate, LIMITS.coordinate, "Invalid line position.")
   };
 
+  // Right-angle lines keep the direction each end leaves in.
+  if (end.dir != null) {
+    if (!LINE_DIRECTIONS.has(end.dir)) {
+      invalid("Invalid line direction.");
+    }
+
+    point.dir = end.dir;
+  }
+
   if (end.item == null && end.side == null) {
     return point;
   }
@@ -234,7 +245,12 @@ const DATA_VALIDATORS = {
       invalid("A line can't join a card to itself.");
     }
 
-    return { start, end };
+    // Straight is the default and isn't stored.
+    if (data.shape != null && data.shape !== "straight" && data.shape !== "elbow") {
+      invalid("Invalid line type.");
+    }
+
+    return data.shape === "elbow" ? { shape: "elbow", start, end } : { start, end };
   }
 };
 

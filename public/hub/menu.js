@@ -16,6 +16,7 @@ const COLOR_NAMES = {
 };
 
 const NOTE_SIZES = [["s", "Small text"], ["m", "Medium text"], ["l", "Large text"]];
+const LINE_SHAPES = [["straight", "Straight"], ["elbow", "Right angle"]];
 const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 const EDGE_GAP = 8;
 
@@ -66,8 +67,9 @@ export class CardMenu {
   }
 
   // colors: colours of the selected cards; noteSizes: their note sizes (empty if
-  // no notes); canPaste: there are copied cards; canvas: the empty-canvas menu.
-  open(x, y, { colors, noteSizes, canPaste = false, canvas = false }) {
+  // no notes); lineShapes: the types of the selected lines (empty if no lines);
+  // canPaste: there are copied cards; canvas: the empty-canvas menu.
+  open(x, y, { colors, noteSizes, lineShapes = new Set(), canPaste = false, canvas = false }) {
     const add = (item, action) => {
       item.addEventListener("click", () => {
         this.close();
@@ -134,6 +136,23 @@ export class CardMenu {
       }
 
       children.push(sizes);
+    }
+
+    if (lineShapes.size) {
+      const shapes = document.createElement("div");
+      shapes.className = "menu-sizes";
+      shapes.setAttribute("role", "group");
+      shapes.setAttribute("aria-label", "Line type");
+
+      for (const [shape, label] of LINE_SHAPES) {
+        const item = button("menu-size", label, {
+          role: "menuitemradio",
+          checked: lineShapes.size === 1 && lineShapes.has(shape)
+        });
+        shapes.append(add(item, { type: "lineShape", value: shape }));
+      }
+
+      children.push(shapes);
     }
 
     children.push(

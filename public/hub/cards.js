@@ -2,7 +2,7 @@
 // values, and URLs become links only when they parse as http(s).
 
 import { fileUrl } from "./api.js";
-import { DEFAULT_LENGTH } from "./connectors.js";
+import { DEFAULT_LENGTH, DEFAULT_RISE, linePoints } from "./connectors.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const URL_PATTERN = /https?:\/\/[^\s<>"]+/gi;
@@ -21,7 +21,9 @@ export const CARD_TYPES = {
   folder: { w: 168, h: 144, minW: 110, minH: 110 },
   // A line has no size of its own; w and h only size the outline shown while
   // it is dragged in from the toolbar (the new line's length and a band round it).
-  connector: { w: DEFAULT_LENGTH, h: 24, minW: 0, minH: 0 }
+  connector: { w: DEFAULT_LENGTH, h: 24, minW: 0, minH: 0 },
+  // The toolbar's right-angle line: a "connector" item with data.shape "elbow".
+  elbow: { w: DEFAULT_LENGTH, h: DEFAULT_RISE, minW: 0, minH: 0 }
 };
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -127,7 +129,7 @@ function svgElement(tag, className) {
   return node;
 }
 
-// Three lines on top of each other: a halo for the selection, the visible
+// Three paths on top of each other: a halo for the selection, the visible
 // line, and a wide invisible one that is easy to grab. The arrowhead is an SVG
 // marker, so it grows with the line's width. Both ends have a handle.
 function connectorParts() {
@@ -148,7 +150,7 @@ function connectorParts() {
 
   const defs = svgElement("defs");
   defs.append(marker);
-  svg.append(defs, svgElement("line", "connector-halo"), svgElement("line", "connector-line"), svgElement("line", "connector-hit"));
+  svg.append(defs, svgElement("path", "connector-halo"), svgElement("path", "connector-line"), svgElement("path", "connector-hit"));
 
   const handles = ["start", "end"].map((which) => {
     const handle = el("div", "connector-handle");
@@ -202,7 +204,7 @@ function describe(item) {
     case "folder":
       return `Folder: ${data.name}. Press Enter to open.`;
     case "connector":
-      return "Line with an arrow";
+      return data.shape === "elbow" ? "Right-angle line with an arrow" : "Line with an arrow";
     default:
       return "Card";
   }
@@ -375,25 +377,23 @@ const RENDERERS = {
     name.title = item.data.name;
   },
 
-  // Drawn relative to the card's own box, which spans the two ends.
+  // Drawn relative to the card's own box, which spans the whole line (its two
+  // ends, and the corners between them for a right-angle line).
   connector(card, item) {
     const { start, end } = item.data;
-    const from = { x: start.x - item.x, y: start.y - item.y };
-    const to = { x: end.x - item.x, y: end.y - item.y };
+    const points = linePoints(item.data).map((point) => ({ x: point.x - item.x, y: point.y - item.y }));
+    const path = points.map((point, index) => `${index ? "L" : "M"}${point.x} ${point.y}`).join(" ");
     const arrow = `arrow-${item.id}`;
 
     card.querySelector("marker").id = arrow;
 
-    for (const line of card.querySelectorAll(".connector-svg line")) {
-      line.setAttribute("x1", String(from.x));
-      line.setAttribute("y1", String(from.y));
-      line.setAttribute("x2", String(to.x));
-      line.setAttribute("y2", String(to.y));
-      line.setAttribute("marker-end", line.classList.contains("connector-line") ? `url(#${arrow})` : "none");
+    for (const shape of card.querySelectorAll(".connector-halo, .connector-line, .connector-hit")) {
+      shape.setAttribute("d", path);
+      shape.setAttribute("marker-end", shape.classList.contains("connector-line") ? `url(#${arrow})` : "none");
     }
 
     for (const handle of card.querySelectorAll(".connector-handle")) {
-      const [point, ends] = handle.dataset.end === "start" ? [from, start] : [to, end];
+      const [point, ends] = handle.dataset.end === "start" ? [points[0], start] : [points.at(-1), end];
       handle.style.left = `${point.x}px`;
       handle.style.top = `${point.y}px`;
       handle.dataset.attached = String(Boolean(ends.item));

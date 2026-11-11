@@ -10,10 +10,29 @@
 
 export const SIDES = ["top", "right", "bottom", "left"];
 
-// A new line, in world pixels (five grid cells).
+// Right-angle ("elbow") lines: data.shape is "elbow" (a straight line has no
+// shape). Each end has a direction, the way a line leaves it: an attached end
+// leaves its card at right angles to the side it is on; a free end keeps the
+// direction it last had. The route follows from the two directions alone, so
+// there is nothing to adjust:
+//   - at right angles to each other: one turn (an L) with the corner fixed at
+//     the end where the first segment meets the second end's row or column;
+//   - facing each other (opposite): two turns (a Z), the middle segment halfway;
+//   - the same way (a C): two turns, the middle segment one grid cell beyond
+//     the farther end.
+export const DIRECTIONS = ["up", "right", "down", "left"];
+export const SIDE_DIRECTION = { top: "up", right: "right", bottom: "down", left: "left" };
+const OPPOSITE = { up: "down", down: "up", left: "right", right: "left" };
+const isHorizontal = (direction) => direction === "left" || direction === "right";
+
+// A new line, in world pixels (five grid cells long; a right-angle line is also
+// two cells tall).
 export const DEFAULT_LENGTH = 120;
+export const DEFAULT_RISE = 48;
 // Ends can't be dragged closer than this (one grid cell).
 export const MIN_LENGTH = 24;
+// How far a C-shaped line goes beyond its farther end (one grid cell).
+export const BEND_MARGIN = 24;
 
 // The point at the middle of one side of a rectangle { x, y, w, h }.
 export function hotspotPoint(rect, side) {
@@ -46,9 +65,123 @@ export function endPosition(end, items) {
 
 // The box around two points.
 export function boundsOf(a, b) {
-  const x = Math.min(a.x, b.x);
-  const y = Math.min(a.y, b.y);
-  return { x, y, w: Math.max(a.x, b.x) - x, h: Math.max(a.y, b.y) - y };
+  return boundsOfPoints([a, b]);
+}
+
+// The box around any number of points.
+export function boundsOfPoints(points) {
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+// Drops points that add no corner: repeats, and points on a straight run.
+function withoutRedundantPoints(points) {
+  const kept = [points[0]];
+
+  for (let i = 1; i < points.length; i++) {
+    const previous = kept[kept.length - 1];
+
+    if (points[i].x === previous.x && points[i].y === previous.y) {
+      continue;
+    }
+
+    const next = points[i + 1];
+
+    if (next) {
+      const cross = (points[i].x - previous.x) * (next.y - points[i].y)
+        - (points[i].y - previous.y) * (next.x - points[i].x);
+
+      if (cross === 0) {
+        continue;
+      }
+    }
+
+    kept.push(points[i]);
+  }
+
+  return kept;
+}
+
+// The corners of a right-angle line from `a` (leaving in `aDirection`) to `b`
+// (leaving in `bDirection`, i.e. arriving the other way). Always starts at a
+// and ends at b; ends in line with each other make a straight run.
+export function elbowRoute(a, aDirection, b, bDirection) {
+  const points = [{ x: a.x, y: a.y }];
+
+  if (isHorizontal(aDirection) !== isHorizontal(bDirection)) {
+    // L: along a's direction to b's row or column, then straight to b.
+    points.push(isHorizontal(aDirection) ? { x: b.x, y: a.y } : { x: a.x, y: b.y });
+  } else if (aDirection === bDirection) {
+    // C: out past the farther end, across, and back.
+    if (isHorizontal(aDirection)) {
+      const x = aDirection === "right" ? Math.max(a.x, b.x) + BEND_MARGIN : Math.min(a.x, b.x) - BEND_MARGIN;
+      points.push({ x, y: a.y }, { x, y: b.y });
+    } else {
+      const y = aDirection === "down" ? Math.max(a.y, b.y) + BEND_MARGIN : Math.min(a.y, b.y) - BEND_MARGIN;
+      points.push({ x: a.x, y }, { x: b.x, y });
+    }
+  } else if (isHorizontal(aDirection)) {
+    // Z: halfway between the ends.
+    const x = (a.x + b.x) / 2;
+    points.push({ x, y: a.y }, { x, y: b.y });
+  } else {
+    const y = (a.y + b.y) / 2;
+    points.push({ x: a.x, y }, { x: b.x, y });
+  }
+
+  points.push({ x: b.x, y: b.y });
+  return withoutRedundantPoints(points);
+}
+
+// The points a line is drawn through: its two ends, or the corners between
+// them for a right-angle line.
+export function linePoints(data) {
+  const { start, end } = data;
+
+  if (data.shape !== "elbow") {
+    return [{ x: start.x, y: start.y }, { x: end.x, y: end.y }];
+  }
+
+  return elbowRoute(start, start.dir ?? "right", end, end.dir ?? "left");
+}
+
+// Sets the direction of every end of a right-angle line: an attached end leaves
+// at right angles to its card's side; a free end keeps its direction, or gets one
+// if it has none yet (a new line, or one just switched from straight): at right
+// angles to the other end's direction when that has one (an L), else facing it
+// along the longer side (a Z).
+export function fillDirections(data) {
+  const { start, end } = data;
+
+  for (const line of [start, end]) {
+    if (line.item) {
+      line.dir = SIDE_DIRECTION[line.side];
+    }
+  }
+
+  if (start.dir && end.dir) {
+    return;
+  }
+
+  if (start.dir || end.dir) {
+    const [known, open] = start.dir ? [start, end] : [end, start];
+
+    open.dir = isHorizontal(known.dir)
+      ? (known.y > open.y ? "down" : "up")
+      : (known.x > open.x ? "right" : "left");
+    return;
+  }
+
+  if (Math.abs(end.x - start.x) >= Math.abs(end.y - start.y)) {
+    start.dir = end.x >= start.x ? "right" : "left";
+  } else {
+    start.dir = end.y >= start.y ? "down" : "up";
+  }
+
+  end.dir = OPPOSITE[start.dir];
 }
 
 const distanceBetween = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);

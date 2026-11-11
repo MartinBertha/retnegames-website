@@ -261,3 +261,38 @@ describe("cleanName", () => {
     assert.throws(() => cleanName("x".repeat(101)), HttpError);
   });
 });
+
+describe("right-angle line connectors", () => {
+  const CARD = "33333333-3333-4333-8333-333333333333";
+  const line = (data) => ({ ...note(), type: "connector", x: 0, y: 0, w: 120, h: 48, data });
+  const ends = { start: { x: 0, y: 0, dir: "right" }, end: { x: 120, y: 48, dir: "left" } };
+
+  it("keeps the type and the direction of each end", () => {
+    const item = validateItem(line({ shape: "elbow", ...ends, extra: 1 }));
+
+    assert.deepEqual(item.data, { shape: "elbow", ...ends });
+  });
+
+  it("doesn't store the straight type, and accepts a line without directions", () => {
+    assert.deepEqual(validateItem(line({ shape: "straight", start: { x: 0, y: 0 }, end: { x: 5, y: 5 } })).data, {
+      start: { x: 0, y: 0 },
+      end: { x: 5, y: 5 }
+    });
+  });
+
+  it("keeps the direction of an attached end next to its card and side", () => {
+    const item = validateItem(line({
+      shape: "elbow",
+      start: { x: 0, y: 0, dir: "down", item: CARD, side: "bottom" },
+      end: ends.end
+    }));
+
+    assert.deepEqual(item.data.start, { x: 0, y: 0, dir: "down", item: CARD, side: "bottom" });
+  });
+
+  it("rejects an unknown type or direction", () => {
+    rejects(line({ shape: "curvy", ...ends }), /Invalid line type/);
+    rejects(line({ shape: "elbow", start: { ...ends.start, dir: "north" }, end: ends.end }), /Invalid line direction/);
+    rejects(line({ shape: "elbow", start: { ...ends.start, dir: 3 }, end: ends.end }), /Invalid line direction/);
+  });
+});
