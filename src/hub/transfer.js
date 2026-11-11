@@ -238,8 +238,11 @@ export async function importExport({ request, env }) {
   const linked = new Set();
   const newBoards = [];
 
+  const newItemIds = new Map();
+
   for (const item of kept) {
-    item.id = crypto.randomUUID();
+    newItemIds.set(item.id, crypto.randomUUID());
+    item.id = newItemIds.get(item.id);
 
     if (item.type === "folder") {
       const child = item.data.childBoardId;
@@ -251,6 +254,27 @@ export async function importExport({ request, env }) {
         const id = crypto.randomUUID();
         newBoards.push({ id, parentId: newIds.get(item.boardId), name: item.data.name, viewX: 0, viewY: 0, viewZoom: 1 });
         item.data.childBoardId = id;
+      }
+    }
+  }
+
+  // A line follows the new id of the card it is attached to; if that card isn't
+  // part of the import (or is on another board) the end stays where it is, free.
+  const boardOf = new Map(kept.map((item) => [item.id, item.boardId]));
+
+  for (const item of kept) {
+    if (item.type !== "connector") {
+      continue;
+    }
+
+    for (const end of [item.data.start, item.data.end]) {
+      const target = newItemIds.get(end.item);
+
+      if (target && boardOf.get(target) === item.boardId) {
+        end.item = target;
+      } else {
+        delete end.item;
+        delete end.side;
       }
     }
   }

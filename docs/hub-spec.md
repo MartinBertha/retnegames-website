@@ -50,6 +50,7 @@ None of these values are secrets. There are no new secrets in v1.
 - Boards: infinite canvas, pan and zoom (mouse and touch).
 - Card types: **text note, checklist, image, link, section, folder**.
 - Folder card: a folder icon with its name below (no card background; a colour tints the icon); double-click opens a new blank board nested under the current one. Breadcrumb navigation back up.
+- **Line connectors** (added after v1): a straight line with an arrowhead, attachable to the middle of any card's side (section 6).
 - Drag, resize, multi-select, duplicate, copy, cut and paste (also between boards), delete, colour, bring to front or send to back, undo and redo.
 - Drag-drop and paste for images, URLs and text.
 - Autosave to the server, syncing across devices (desktop and phone).
@@ -57,7 +58,7 @@ None of these values are secrets. There are no new secrets in v1.
 - Dark and light theme.
 
 ### Explicitly out of v1
-Connector arrows, global search, multi-user or sharing, real-time collaboration, offline mode, rich-text editing, trash or version-history UI, comments, due dates on checklist items, native mobile app, any third-party scripts or CDNs.
+Elbow or curved connectors, connector labels, thickness, dashes or arrowhead choices (lines are straight with a fixed arrowhead at the end), global search, multi-user or sharing, real-time collaboration, offline mode, rich-text editing, trash or version-history UI, comments, due dates on checklist items, native mobile app, any third-party scripts or CDNs.
 
 ---
 
@@ -104,7 +105,7 @@ CREATE TABLE boards (
 CREATE TABLE items (
   id          TEXT PRIMARY KEY,
   board_id    TEXT NOT NULL REFERENCES boards(id),
-  type        TEXT NOT NULL CHECK (type IN ('note','checklist','image','link','section','folder')),
+  type        TEXT NOT NULL CHECK (type IN ('note','checklist','image','link','section','folder','connector')),  -- 'connector' added by migration 0002
   x REAL NOT NULL, y REAL NOT NULL, w REAL NOT NULL, h REAL NOT NULL,
   z           INTEGER NOT NULL DEFAULT 0,
   color       TEXT,                          -- palette key, nullable
@@ -136,6 +137,7 @@ On first run (no boards exist), the API creates a root board named **Home**.
 | `link` | `{ "url": string, "title": string }` (`http` or `https` only, or `""` for a link not filled in yet) |
 | `section` | `{ "title": string }` a labelled coloured area drawn behind other cards |
 | `folder` | `{ "name": string, "childBoardId": uuid }` |
+| `connector` | `{ "start": End, "end": End }`, where `End` is `{ "x": number, "y": number }` and, when attached to a card, also `"item": uuid, "side": "top" \| "right" \| "bottom" \| "left"`. `x`, `y` always hold where the end is now (on the card's hotspot when attached), so an end keeps its place if its card is deleted. The item's own `x`, `y`, `w`, `h` are the box around the two ends. The server rejects a line whose two ends are attached to the same card. |
 
 ### Checklist ordering rule (important)
 The `entries` array is stored in display order and the following invariant always holds: **all unticked entries come first, all ticked entries come after.**
@@ -156,7 +158,7 @@ The `entries` array is stored in display order and the following invariant alway
 - Nesting depth is unlimited in principle; the UI breadcrumb truncates the middle on narrow screens.
 
 ### Validation limits
-Note text 20,000 characters; checklist 200 entries, 500 characters each; names and titles 100 characters; URL 2,048 characters; item `data` 64 KB; 2,000 items per board; coordinates within ±1,000,000; width and height 40 to 10,000. Reject anything outside with 400.
+Note text 20,000 characters; checklist 200 entries, 500 characters each; names and titles 100 characters; URL 2,048 characters; item `data` 64 KB; 2,000 items per board; coordinates within ±1,000,000; width and height 40 to 10,000 (a line connector's box may be flat, 0 to 2,000,000, since it spans its two ends). Reject anything outside with 400.
 
 ---
 
@@ -191,7 +193,7 @@ Notes:
 
 ### Layout
 - **Top bar:** breadcrumb (Home › Game › Art), save status ("Saved", "Saving…", "Offline, retrying"), theme toggle, export and import (menu).
-- **Add-card toolbar** (bottom on mobile, left on desktop): Note, Checklist, Image (file picker), Link, Section, Folder. Cards are added by **dragging** a button onto the canvas (an outline of the card follows the pointer and the card lands where it is dropped; dropping Image opens the file picker for that spot). A plain click only shows a hint; Enter or Space on a focused button adds the card in the middle of the view. A new card opens for editing; a toolbar card left empty stays on the board so it can be filled in later, unless editing is cancelled with Escape.
+- **Add-card toolbar** (bottom on mobile, left on desktop): Note, Checklist, Image (file picker), Link, Section, Folder, Line. Cards are added by **dragging** a button onto the canvas (an outline of the card follows the pointer and the card lands where it is dropped; dropping Image opens the file picker for that spot). A plain click only shows a hint; Enter or Space on a focused button adds the card in the middle of the view. A new card opens for editing; a toolbar card left empty stays on the board so it can be filled in later, unless editing is cancelled with Escape.
 - **Canvas:** fills the rest of the screen. A subtle dot grid that scales with zoom.
 - **Navigation state** in the URL hash: `#/b/<boardId>`, so refresh and browser back or forward work. No hash means the root board.
 
@@ -218,6 +220,15 @@ Notes:
 - **Link:** shows title and hostname; click opens the URL in a new tab with `rel="noopener noreferrer"`. No remote fetching of titles or favicons in v1 (the user types the title; default to the hostname). A link with no address yet shows "Add a link" and opens nothing.
 - **Section:** a large translucent labelled rectangle behind other cards.
 - **Folder:** a folder icon with the board's name underneath; rename in place.
+- **Line (connector):** works like a PowerPoint connector. Dragged in from the toolbar it lands as a 120 px horizontal line with an arrowhead on its right end (ends on the grid). It has three interactive parts: dragging either **end** (a round handle when the line is selected) stretches the line, and dragging the **line itself** moves it. Colour from the card palette, copy, cut, paste, duplicate, front/back and delete work as for cards; there is nothing to edit, no resize handle, and no text, thickness or arrowhead options.
+  - **Hotspots:** every card (all six types, including sections) has four hotspots, one in the middle of each side. While an end is dragged, the hotspots of cards near the pointer appear and the end snaps to the nearest within about 20 px (36 px on touch), which highlights it. An attached end is drawn as a filled handle, a free one hollow; dragging an attached end away detaches it. A line can't attach to another line.
+  - **Rules:** several lines may share one hotspot, but the two ends of one line can't be on the same card (that card's hotspots don't appear for the second end, and the server rejects it). Ends can't be dragged closer than 24 px. Free ends snap to the grid (Shift: free).
+  - **Following cards:** moving, resizing or growing a card moves the attached ends with it. Cards and their lines change in one undo step.
+  - **Moving a line by its body** detaches its ends, unless the card an end is attached to moves in the same selection. A line whose centre is inside a section moves with it (like cards), its attached ends staying on their cards.
+  - **Deleting a card** keeps its lines, with the attached end free where it was; undo restores the attachment.
+  - **Copy, paste and duplicate:** an attachment is kept only when the card is part of the same copy; otherwise that end becomes free where it is. Import remaps attachments to the imported cards the same way.
+  - **Layering:** a line is stacked like any card (normal z-order); sections stay behind.
+  - **Selection:** the marquee selects a line it crosses, not one whose box it merely overlaps.
 
 ### Input shortcuts
 - Drop image files onto the canvas to create image cards at the drop point.

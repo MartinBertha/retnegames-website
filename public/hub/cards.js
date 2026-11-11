@@ -2,6 +2,7 @@
 // values, and URLs become links only when they parse as http(s).
 
 import { fileUrl } from "./api.js";
+import { DEFAULT_LENGTH } from "./connectors.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const URL_PATTERN = /https?:\/\/[^\s<>"]+/gi;
@@ -17,7 +18,10 @@ export const CARD_TYPES = {
   image: { w: 336, h: 240, minW: 60, minH: 40 },
   link: { w: 264, h: 72, minW: 160, minH: 64 },
   section: { w: 528, h: 360, minW: 160, minH: 100 },
-  folder: { w: 168, h: 144, minW: 110, minH: 110 }
+  folder: { w: 168, h: 144, minW: 110, minH: 110 },
+  // A line has no size of its own; w and h only size the outline shown while
+  // it is dragged in from the toolbar (the new line's length and a band round it).
+  connector: { w: DEFAULT_LENGTH, h: 24, minW: 0, minH: 0 }
 };
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -113,6 +117,49 @@ function folderIcon() {
   return svg;
 }
 
+function svgElement(tag, className) {
+  const node = document.createElementNS(SVG_NS, tag);
+
+  if (className) {
+    node.setAttribute("class", className);
+  }
+
+  return node;
+}
+
+// Three lines on top of each other: a halo for the selection, the visible
+// line, and a wide invisible one that is easy to grab. The arrowhead is an SVG
+// marker, so it grows with the line's width. Both ends have a handle.
+function connectorParts() {
+  const svg = svgElement("svg", "connector-svg");
+  svg.setAttribute("aria-hidden", "true");
+
+  const marker = svgElement("marker");
+  marker.setAttribute("viewBox", "0 0 10 10");
+  marker.setAttribute("refX", "8");
+  marker.setAttribute("refY", "5");
+  marker.setAttribute("markerWidth", "6");
+  marker.setAttribute("markerHeight", "6");
+  marker.setAttribute("orient", "auto");
+
+  const head = svgElement("path", "connector-arrowhead");
+  head.setAttribute("d", "M0 0L10 5L0 10z");
+  marker.append(head);
+
+  const defs = svgElement("defs");
+  defs.append(marker);
+  svg.append(defs, svgElement("line", "connector-halo"), svgElement("line", "connector-line"), svgElement("line", "connector-hit"));
+
+  const handles = ["start", "end"].map((which) => {
+    const handle = el("div", "connector-handle");
+    handle.dataset.end = which;
+    handle.setAttribute("aria-hidden", "true");
+    return handle;
+  });
+
+  return [svg, ...handles];
+}
+
 const STRUCTURE = {
   note: () => [el("div", "note-title"), el("div", "note-text")],
   checklist: () => {
@@ -129,7 +176,8 @@ const STRUCTURE = {
   },
   link: () => [el("a", "link-title"), el("div", "link-host")],
   section: () => [el("div", "section-title")],
-  folder: () => [folderIcon(), el("div", "folder-name")]
+  folder: () => [folderIcon(), el("div", "folder-name")],
+  connector: connectorParts
 };
 
 // What a screen reader announces for a focused card.
@@ -153,6 +201,8 @@ function describe(item) {
       return `Section: ${data.title || "untitled"}`;
     case "folder":
       return `Folder: ${data.name}. Press Enter to open.`;
+    case "connector":
+      return "Line with an arrow";
     default:
       return "Card";
   }
@@ -167,8 +217,8 @@ export function createCardElement(item) {
   card.setAttribute("aria-roledescription", "card");
   card.append(...STRUCTURE[item.type]());
 
-  // Folders keep their standard size.
-  if (item.type !== "folder") {
+  // Folders keep their standard size, and lines are resized by their ends.
+  if (item.type !== "folder" && item.type !== "connector") {
     const handle = el("div", "resize-handle");
     handle.setAttribute("aria-hidden", "true");
     card.append(handle);
@@ -323,6 +373,31 @@ const RENDERERS = {
     const name = card.querySelector(".folder-name");
     name.textContent = item.data.name;
     name.title = item.data.name;
+  },
+
+  // Drawn relative to the card's own box, which spans the two ends.
+  connector(card, item) {
+    const { start, end } = item.data;
+    const from = { x: start.x - item.x, y: start.y - item.y };
+    const to = { x: end.x - item.x, y: end.y - item.y };
+    const arrow = `arrow-${item.id}`;
+
+    card.querySelector("marker").id = arrow;
+
+    for (const line of card.querySelectorAll(".connector-svg line")) {
+      line.setAttribute("x1", String(from.x));
+      line.setAttribute("y1", String(from.y));
+      line.setAttribute("x2", String(to.x));
+      line.setAttribute("y2", String(to.y));
+      line.setAttribute("marker-end", line.classList.contains("connector-line") ? `url(#${arrow})` : "none");
+    }
+
+    for (const handle of card.querySelectorAll(".connector-handle")) {
+      const [point, ends] = handle.dataset.end === "start" ? [from, start] : [to, end];
+      handle.style.left = `${point.x}px`;
+      handle.style.top = `${point.y}px`;
+      handle.dataset.attached = String(Boolean(ends.item));
+    }
   }
 };
 

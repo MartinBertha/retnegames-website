@@ -2,6 +2,8 @@
 // copied last wins, and cards paste into other hub tabs); the card menu's
 // Paste uses the last cards copied on this device, kept in localStorage.
 
+import { SIDES } from "./connectors.js";
+
 export const CARDS_MIME = "application/x-retne-hub-cards";
 
 const STORAGE_KEY = "hub-clipboard";
@@ -21,7 +23,14 @@ const DATA_SHAPES = {
   image: (data) => isString(data.fileId),
   link: (data) => isString(data.url),
   section: (data) => isString(data.title),
-  folder: (data) => isString(data.name) && isString(data.childBoardId)
+  folder: (data) => isString(data.name) && isString(data.childBoardId),
+  connector: (data) => [data.start, data.end].every((end) => (
+    isObject(end)
+    && Number.isFinite(end.x)
+    && Number.isFinite(end.y)
+    // An attachment needs both the card and one of its four sides.
+    && (end.item === undefined || (isString(end.item) && SIDES.includes(end.side)))
+  ))
 };
 
 function isCard(item) {

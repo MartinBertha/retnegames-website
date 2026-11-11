@@ -185,6 +185,71 @@ describe("links, images and sections", () => {
   });
 });
 
+describe("line connectors", () => {
+  const CARD_A = "33333333-3333-4333-8333-333333333333";
+  const CARD_B = "44444444-4444-4444-8444-444444444444";
+  const line = (data, overrides = {}) => ({
+    ...note(),
+    type: "connector",
+    x: 0,
+    y: 48,
+    w: 120,
+    h: 0,
+    data,
+    ...overrides
+  });
+  const free = { start: { x: 0, y: 48 }, end: { x: 120, y: 48 } };
+
+  it("accepts a flat line, which no card may be", () => {
+    const item = validateItem(line(free));
+
+    assert.equal(item.h, 0);
+    assert.deepEqual(item.data, free);
+    rejects(note({ h: 0 }), /Invalid card size/);
+  });
+
+  it("keeps the card and side of an attached end, and drops unknown keys", () => {
+    const item = validateItem(line({
+      start: { x: 0, y: 48, item: CARD_A, side: "right", extra: 1 },
+      end: { x: 120, y: 48 }
+    }));
+
+    assert.deepEqual(item.data.start, { x: 0, y: 48, item: CARD_A, side: "right" });
+    assert.deepEqual(item.data.end, { x: 120, y: 48 });
+  });
+
+  it("allows ends on two different cards, and many lines on one card", () => {
+    const item = validateItem(line({
+      start: { x: 0, y: 48, item: CARD_A, side: "right" },
+      end: { x: 120, y: 48, item: CARD_B, side: "left" }
+    }));
+
+    assert.equal(item.data.end.item, CARD_B);
+  });
+
+  it("rejects both ends on one card", () => {
+    rejects(line({
+      start: { x: 0, y: 48, item: CARD_A, side: "right" },
+      end: { x: 120, y: 48, item: CARD_A, side: "left" }
+    }), /can't join a card to itself/);
+  });
+
+  it("rejects bad attachments and positions", () => {
+    rejects(line({ start: { x: 0, y: 48, item: CARD_A }, end: free.end }), /Invalid line attachment/);
+    rejects(line({ start: { x: 0, y: 48, item: "nope", side: "top" }, end: free.end }), /Invalid line attachment/);
+    rejects(line({ start: { x: 0, y: 48, item: CARD_A, side: "middle" }, end: free.end }), /Invalid line attachment/);
+    rejects(line({ start: { x: 0, y: "48" }, end: free.end }), /Invalid line position/);
+    rejects(line({ start: { x: 2_000_000, y: 0 }, end: free.end }), /Invalid line position/);
+    rejects(line({ start: free.start }), /Invalid line/);
+    rejects(line("free"), /Invalid line/);
+  });
+
+  it("allows a box as long as the coordinate range, and no longer", () => {
+    assert.equal(validateItem(line(free, { w: 2_000_000 })).w, 2_000_000);
+    rejects(line(free, { w: 2_000_001 }), /Invalid card size/);
+  });
+});
+
 describe("cleanName", () => {
   it("trims and flattens whitespace and control characters", () => {
     assert.equal(cleanName("  Game\tdesign\n"), "Game design");

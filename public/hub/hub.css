@@ -42,6 +42,15 @@
   --tone-teal: #1f3432;
   --tone-blue: #222d3f;
   --tone-purple: #31263d;
+  /* The same colours as strokes, for lines. */
+  --ink-grey: #a3a29b;
+  --ink-red: #e0817a;
+  --ink-orange: #e3a05f;
+  --ink-yellow: #d9c25a;
+  --ink-green: #8fc27a;
+  --ink-teal: #6fc2b6;
+  --ink-blue: #7fa6e6;
+  --ink-purple: #b394df;
   --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 18px rgba(0, 0, 0, 0.28);
   --popup-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
   --font-dos: "Perfect DOS VGA 437", ui-monospace, monospace;
@@ -82,6 +91,14 @@
   --tone-teal: #d4ebe7;
   --tone-blue: #dae4f4;
   --tone-purple: #e8def4;
+  --ink-grey: #6b6960;
+  --ink-red: #c4463d;
+  --ink-orange: #c2701f;
+  --ink-yellow: #a88a0b;
+  --ink-green: #4a8a35;
+  --ink-teal: #2b8a7d;
+  --ink-blue: #3b6cc4;
+  --ink-purple: #7f55b8;
   --card-shadow: 0 1px 2px rgba(28, 27, 24, 0.12), 0 6px 18px rgba(28, 27, 24, 0.08);
   --popup-shadow: 0 12px 32px rgba(28, 27, 24, 0.18);
 }
@@ -1067,6 +1084,151 @@ body.is-placing * {
   pointer-events: auto;
 }
 
+/* ---- Line connectors ---------------------------------------------------------
+   A line is a card with no box of its own: the element spans the two ends, takes
+   no clicks itself, and only the line (a wide invisible stroke) and, when
+   selected, the two end handles do. Widths are in world pixels; --zoom keeps
+   the line, handles and hotspots the same size on screen at any zoom. */
+
+.card-connector {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--text);
+  pointer-events: none;
+}
+
+.card-connector[data-color="grey"] { color: var(--ink-grey); }
+.card-connector[data-color="red"] { color: var(--ink-red); }
+.card-connector[data-color="orange"] { color: var(--ink-orange); }
+.card-connector[data-color="yellow"] { color: var(--ink-yellow); }
+.card-connector[data-color="green"] { color: var(--ink-green); }
+.card-connector[data-color="teal"] { color: var(--ink-teal); }
+.card-connector[data-color="blue"] { color: var(--ink-blue); }
+.card-connector[data-color="purple"] { color: var(--ink-purple); }
+
+/* The selection and focus show on the line, not on its box. */
+.card-connector.is-selected,
+.card-connector:focus-visible {
+  outline: none;
+}
+
+.connector-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+}
+
+.connector-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: max(2px, calc(1.5px / var(--zoom, 1)));
+}
+
+.connector-arrowhead {
+  fill: currentColor;
+}
+
+.connector-halo {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: max(7px, calc(6px / var(--zoom, 1)));
+  stroke-linecap: round;
+  opacity: 0;
+}
+
+.card-connector.is-selected .connector-halo {
+  opacity: 0.3;
+}
+
+.card-connector:focus-visible .connector-halo {
+  stroke: var(--focus);
+  opacity: 0.6;
+}
+
+.connector-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: calc(16px / var(--zoom, 1));
+  stroke-linecap: round;
+  pointer-events: stroke;
+  cursor: move;
+}
+
+.connector-handle {
+  position: absolute;
+  display: none;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  transform: scale(calc(1 / var(--zoom, 1)));
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* An open dot when the end is free, a filled one when it's attached. */
+.connector-handle::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.connector-handle[data-attached="true"]::before {
+  background: var(--accent);
+}
+
+.card-connector.is-selected .connector-handle {
+  display: block;
+  pointer-events: auto;
+}
+
+@media (pointer: coarse) {
+  .connector-hit {
+    stroke-width: calc(36px / var(--zoom, 1));
+  }
+
+  .connector-handle {
+    width: 44px;
+    height: 44px;
+    margin: -22px 0 0 -22px;
+  }
+
+  .connector-handle::before {
+    inset: 15px;
+  }
+}
+
+/* Where a line end can attach, shown on the cards near the pointer while an
+   end is dragged. */
+.layer-hotspots {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.hotspot {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--surface);
+  transform: scale(calc(1 / var(--zoom, 1)));
+}
+
+.hotspot.is-active {
+  background: var(--accent);
+  transform: scale(calc(1.6 / var(--zoom, 1)));
+}
+
 /* ---- Card menu and messages ------------------------------------------------ */
 
 .card-menu {
@@ -1251,10 +1413,14 @@ body.is-placing * {
     border-right: 0;
   }
 
-  /* Eight 44px buttons fit a 360px-wide phone. */
+  /* Nine buttons: 44px wide where the phone has room (412px and up), narrower
+     (down to 40px, still 48px tall) on smaller ones, and the bar scrolls
+     sideways beyond that. */
   .tool {
-    flex: none;
-    width: 44px;
+    flex: 1 1 44px;
+    width: auto;
+    min-width: 40px;
+    max-width: 56px;
     min-height: 48px;
   }
 

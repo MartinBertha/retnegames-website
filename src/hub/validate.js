@@ -22,6 +22,8 @@ export const PALETTE = new Set(["grey", "red", "orange", "yellow", "green", "tea
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const NOTE_SIZES = new Set(["s", "m", "l"]);
+// The sides of a card a line can attach to (the middle of each).
+const LINE_SIDES = new Set(["top", "right", "bottom", "left"]);
 
 function invalid(message) {
   throw new HttpError(400, message);
@@ -123,6 +125,30 @@ function boundedNumber(value, min, max, message) {
   return value;
 }
 
+// One end of a line: its position, plus the card (and side) it is attached to.
+// The position is kept for attached ends too: it is where the end sits now,
+// and where it stays if the card goes away.
+function cleanLineEnd(end) {
+  if (!isPlainObject(end)) {
+    invalid("Invalid line.");
+  }
+
+  const point = {
+    x: boundedNumber(end.x, -LIMITS.coordinate, LIMITS.coordinate, "Invalid line position."),
+    y: boundedNumber(end.y, -LIMITS.coordinate, LIMITS.coordinate, "Invalid line position.")
+  };
+
+  if (end.item == null && end.side == null) {
+    return point;
+  }
+
+  if (!isUuid(end.item) || !LINE_SIDES.has(end.side)) {
+    invalid("Invalid line attachment.");
+  }
+
+  return { ...point, item: end.item, side: end.side };
+}
+
 // Normalised data per card type; unknown keys are dropped.
 const DATA_VALIDATORS = {
   // The title is optional (notes saved before it existed have none).
@@ -192,6 +218,23 @@ const DATA_VALIDATORS = {
     }
 
     return { title: cleanLine(data.title, LIMITS.nameLength, "Title") };
+  },
+
+  // Two ends, each a point and, when attached, the card and side it follows.
+  connector(data) {
+    if (!isPlainObject(data)) {
+      invalid("Invalid line.");
+    }
+
+    const start = cleanLineEnd(data.start);
+    const end = cleanLineEnd(data.end);
+
+    // A line between two sides of one card would only cut across it.
+    if (start.item && start.item === end.item) {
+      invalid("A line can't join a card to itself.");
+    }
+
+    return { start, end };
   }
 };
 
@@ -215,7 +258,12 @@ export function validateItem(raw) {
     invalid("Invalid card order.");
   }
 
-  const { coordinate, minSize, maxSize } = LIMITS;
+  const { coordinate } = LIMITS;
+  // A line's box spans its two ends, so it can be flat (zero height or width)
+  // or as long as the coordinate range; cards have a minimum and a maximum.
+  const { min: minSize, max: maxSize } = raw.type === "connector"
+    ? { min: 0, max: coordinate * 2 }
+    : { min: LIMITS.minSize, max: LIMITS.maxSize };
   const data = DATA_VALIDATORS[raw.type](raw.data);
   const dataJson = JSON.stringify(data);
 

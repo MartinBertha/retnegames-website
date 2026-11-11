@@ -15,6 +15,19 @@ import {
   positionCard,
   updateCardElement
 } from "./cards.js";
+import {
+  DEFAULT_LENGTH,
+  MIN_LENGTH,
+  SIDES,
+  attachedCard,
+  boundsOf,
+  cardsNear,
+  endPosition,
+  hotspotPoint,
+  keepApart,
+  nearestHotspot,
+  segmentTouchesRect
+} from "./connectors.js";
 import { startEditor } from "./editors.js";
 import { History } from "./history.js";
 import { CardMenu } from "./menu.js";
@@ -31,6 +44,11 @@ const CASCADE_OFFSET = GRID;
 const IMAGE_CARD_EDGE = 336;
 const FIT_PADDING = 48;
 const POINTER_MEMORY_MS = 10_000;
+// Dragging a line end: it snaps to a hotspot this close (screen pixels, wider
+// for fingers), and hotspots show on cards within HOTSPOT_REACH of the pointer.
+const HOTSPOT_SNAP = 20;
+const HOTSPOT_SNAP_TOUCH = 36;
+const HOTSPOT_REACH = 56;
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const clampCoordinate = (value) => Math.round(clamp(value, -COORDINATE_LIMIT, COORDINATE_LIMIT));
@@ -106,11 +124,17 @@ export class BoardView {
     this.snapEnabled = true;
     this.modifiers = { shift: false, alt: false };
 
-    // Sections always sit behind the other cards.
-    this.layers = { section: document.createElement("div"), card: document.createElement("div") };
+    // Sections always sit behind the other cards; the hotspots shown while a
+    // line end is dragged sit in front of everything.
+    this.layers = {
+      section: document.createElement("div"),
+      card: document.createElement("div"),
+      hotspot: document.createElement("div")
+    };
     this.layers.section.className = "layer layer-sections";
     this.layers.card.className = "layer layer-cards";
-    world.append(this.layers.section, this.layers.card);
+    this.layers.hotspot.className = "layer layer-hotspots";
+    world.append(this.layers.section, this.layers.card, this.layers.hotspot);
 
     this.bindEvents();
   }
@@ -234,6 +258,8 @@ export class BoardView {
         this.updateDrag(gesture, gesture.last);
       } else if (gesture.type === "resize") {
         this.updateResize(gesture, gesture.last);
+      } else if (gesture.type === "endpoint") {
+        this.updateEndpoint(gesture, gesture.last);
       }
     }
   }
@@ -267,7 +293,17 @@ export class BoardView {
 
   // The same rectangle in window pixels (the outline while placing from the toolbar).
   placementPreview(type, event) {
-    const rect = this.placementRect(type, this.worldPointAt(event), { free: event.shiftKey });
+    const center = this.worldPointAt(event);
+    let rect;
+
+    if (type === "connector") {
+      const { start } = this.linePlacement(center, event.shiftKey);
+      const band = CARD_TYPES.connector.h;
+      rect = { x: start.x, y: start.y - band / 2, w: DEFAULT_LENGTH, h: band };
+    } else {
+      rect = this.placementRect(type, center, { free: event.shiftKey });
+    }
+
     const canvas = this.canvas.getBoundingClientRect();
     const corner = this.viewport.toScreen(rect);
     const zoom = this.viewport.zoom;
@@ -308,6 +344,7 @@ export class BoardView {
       this.addItem(item);
     }
 
+    this.syncConnectors();
     this.viewport.setView(view.x, view.y, view.zoom, { silent: true });
     this.renderSelection();
     this.itemsChanged();
@@ -330,6 +367,7 @@ export class BoardView {
     this.lastTap = null;
     this.layers.section.replaceChildren();
     this.layers.card.replaceChildren();
+    this.layers.hotspot.replaceChildren();
     this.history.clear();
   }
 
@@ -358,6 +396,7 @@ export class BoardView {
       }
     }
 
+    this.syncConnectors();
     this.selected = new Set([...this.selected].filter((id) => this.items.has(id)));
     this.renderSelection();
     this.itemsChanged();
@@ -410,8 +449,11 @@ export class BoardView {
     }
   }
 
+  // The cards' states, plus those of the lines attached to them: a change to a
+  // card (moved, resized, deleted) changes its lines too, in the same undo step.
   capture(ids) {
-    return new Map(ids.map((id) => [id, this.items.has(id) ? structuredClone(snapshot(this.items.get(id))) : null]));
+    const all = [...new Set([...ids, ...this.attachedLines(ids)])];
+    return new Map(all.map((id) => [id, this.items.has(id) ? structuredClone(snapshot(this.items.get(id))) : null]));
   }
 
   // Saves what changed since `before` (from capture) and records one undo step.
@@ -537,6 +579,10 @@ export class BoardView {
 
     this.finishEditing();
 
+    if (type === "connector") {
+      return this.createConnector(center, { free });
+    }
+
     const { x, y, w, h } = this.placementRect(type, center, { size, free });
     const item = this.addItem({
       id: crypto.randomUUID(),
@@ -643,6 +689,7 @@ export class BoardView {
       item.h = Math.min(MAX_CARD_SIZE, Math.ceil(item.h + overflow));
       this.snapGrownHeight(item);
       positionCard(card, item);
+      this.refreshLines([id]);
     }
   }
 
@@ -654,6 +701,7 @@ export class BoardView {
       item.h = Math.min(MAX_CARD_SIZE, Math.ceil(item.h + overflow));
       this.snapGrownHeight(item);
       positionCard(card, item);
+      this.refreshLines([item.id]);
     }
   }
 
@@ -672,6 +720,8 @@ export class BoardView {
       this.removeItem(id);
     }
 
+    // Lines that were attached to a deleted card stay, with that end free.
+    this.syncConnectors();
     this.renderSelection();
     this.itemsChanged();
     this.commitChange(before);
@@ -695,7 +745,7 @@ export class BoardView {
     }
 
     let z = this.maxZ();
-    const created = sources.map((source) => {
+    const copies = sources.map((source) => {
       const copy = structuredClone(snapshot(source));
       copy.id = crypto.randomUUID();
       copy.x = clampCoordinate(source.x + CASCADE_OFFSET);
@@ -710,9 +760,13 @@ export class BoardView {
         copy.data.name = `${copy.data.name} copy`.slice(0, MAX_NAME_LENGTH);
       }
 
-      this.addItem(copy);
-      return copy.id;
+      return copy;
     });
+
+    this.retargetLines(copies, new Map(sources.map((source, index) => [source.id, copies[index].id])), CASCADE_OFFSET, CASCADE_OFFSET);
+
+    const created = copies.map((copy) => this.addItem(copy).id);
+    this.syncConnectors();
 
     this.setSelection(created);
     this.itemsChanged();
@@ -750,14 +804,27 @@ export class BoardView {
   nudgeSelected(dx, dy) {
     const ids = [...this.selected].filter((id) => this.items.has(id)).sort();
     const before = this.capture(ids);
+    const moving = new Set(ids);
+    const lines = [];
 
     for (const id of ids) {
       const item = this.items.get(id);
+
+      if (item.type === "connector") {
+        lines.push([id, this.startLineMove(item, moving, false)]);
+        continue;
+      }
+
       item.x = clampCoordinate(item.x + dx);
       item.y = clampCoordinate(item.y + dy);
       positionCard(this.elements.get(id), item);
     }
 
+    for (const [id, ends] of lines) {
+      this.moveLine(id, ends, dx, dy);
+    }
+
+    this.refreshLines(ids);
     this.commitChange(before, { mergeKey: `nudge:${ids.join(",")}` });
   }
 
@@ -880,6 +947,243 @@ export class BoardView {
     );
 
     this.viewport.setView((left + right) / 2, (top + bottom) / 2, zoom);
+  }
+
+  // ---- Line connectors ---------------------------------------------------
+  // A line's ends are free points or attached to the middle of a card's side
+  // (connectors.js). Moving or resizing a card carries its attached ends; the
+  // lines are saved with the card in one undo step (capture adds them).
+
+  // Ids of the lines attached to any of these cards (lines among them excluded).
+  attachedLines(ids) {
+    const cards = new Set(ids);
+    const lines = [];
+
+    for (const item of this.items.values()) {
+      if (
+        item.type === "connector"
+        && !cards.has(item.id)
+        && (cards.has(item.data.start.item) || cards.has(item.data.end.item))
+      ) {
+        lines.push(item.id);
+      }
+    }
+
+    return lines;
+  }
+
+  // Puts a line's attached ends on their cards' hotspots (an end whose card is
+  // gone becomes free where it was) and refits the line's box and drawing.
+  syncConnector(id) {
+    const line = this.items.get(id);
+
+    if (line?.type !== "connector") {
+      return;
+    }
+
+    for (const end of [line.data.start, line.data.end]) {
+      if (!end.item) {
+        continue;
+      }
+
+      const card = attachedCard(end, this.items);
+
+      if (card) {
+        const spot = hotspotPoint(card, end.side);
+        end.x = clamp(spot.x, -COORDINATE_LIMIT, COORDINATE_LIMIT);
+        end.y = clamp(spot.y, -COORDINATE_LIMIT, COORDINATE_LIMIT);
+      } else {
+        delete end.item;
+        delete end.side;
+      }
+    }
+
+    Object.assign(line, boundsOf(line.data.start, line.data.end));
+    updateCardElement(this.elements.get(id), line);
+  }
+
+  syncConnectors() {
+    for (const item of this.items.values()) {
+      if (item.type === "connector") {
+        this.syncConnector(item.id);
+      }
+    }
+  }
+
+  // After cards moved or changed size: their attached lines follow.
+  refreshLines(ids) {
+    for (const id of this.attachedLines(ids)) {
+      this.syncConnector(id);
+    }
+  }
+
+  // A short horizontal line centred on a world point; its ends land on the grid
+  // when snapping.
+  linePlacement(center, free) {
+    let x = center.x - DEFAULT_LENGTH / 2;
+    let y = center.y;
+
+    if (this.snapping(free)) {
+      x = snapToGrid(x);
+      y = snapToGrid(y);
+    }
+
+    x = clampCoordinate(x);
+    y = clampCoordinate(y);
+
+    return { start: { x, y }, end: { x: clampCoordinate(x + DEFAULT_LENGTH), y } };
+  }
+
+  createConnector(center, { free } = {}) {
+    const { start, end } = this.linePlacement(center, free);
+    const item = this.addItem({
+      id: crypto.randomUUID(),
+      type: "connector",
+      ...boundsOf(start, end),
+      z: this.maxZ() + 1,
+      color: null,
+      data: { start, end }
+    });
+
+    this.setSelection([item.id]);
+    this.itemsChanged();
+    this.commitChange(new Map([[item.id, null]]));
+    return item;
+  }
+
+  // Copies of lines (pasted or duplicated, new ids already given) shift by
+  // (dx, dy) with the rest of the copy. `ids` maps original card ids to their
+  // copies: an end attached to a card that was copied too follows the copy; any
+  // other end becomes a free end where it is.
+  retargetLines(copies, ids, dx, dy) {
+    for (const copy of copies) {
+      if (copy.type !== "connector") {
+        continue;
+      }
+
+      for (const end of [copy.data.start, copy.data.end]) {
+        const card = ids.get(end.item);
+
+        end.x = clampCoordinate(end.x + dx);
+        end.y = clampCoordinate(end.y + dy);
+
+        if (card) {
+          end.item = card;
+        } else {
+          delete end.item;
+          delete end.side;
+        }
+      }
+    }
+  }
+
+  // Sets up moving a line by its ends: the starting points, and which ends
+  // follow a card instead of the pointer. An end attached to a card that moves
+  // too stays on it; an end attached to a card that stays behind lets go (the
+  // line was moved on its own), unless `glue` keeps it there (the line is only
+  // being carried along with a section).
+  startLineMove(line, moving, glue) {
+    const ends = {};
+
+    for (const key of ["start", "end"]) {
+      const end = line.data[key];
+      let follows = false;
+
+      if (end.item && attachedCard(end, this.items)) {
+        if (moving.has(end.item) || glue) {
+          follows = true;
+        } else {
+          delete end.item;
+          delete end.side;
+        }
+      }
+
+      ends[key] = { x: end.x, y: end.y, follows };
+    }
+
+    return ends;
+  }
+
+  moveLine(id, ends, dx, dy) {
+    const line = this.items.get(id);
+
+    for (const key of ["start", "end"]) {
+      if (!ends[key].follows) {
+        line.data[key].x = clampCoordinate(ends[key].x + dx);
+        line.data[key].y = clampCoordinate(ends[key].y + dy);
+      }
+    }
+
+    this.syncConnector(id);
+  }
+
+  // Pointer down on a line's end handle: drag it to stretch the line, onto a
+  // hotspot to attach it, away from one to let go.
+  startEndpoint(id, which, event, point) {
+    this.setSelection([id]);
+    this.gesture = {
+      type: "endpoint",
+      id,
+      which,
+      start: point,
+      last: point,
+      moved: false,
+      reach: event.pointerType === "mouse" ? HOTSPOT_SNAP : HOTSPOT_SNAP_TOUCH,
+      before: this.capture([id])
+    };
+  }
+
+  updateEndpoint(gesture, point) {
+    const line = this.items.get(gesture.id);
+
+    if (!line) {
+      return;
+    }
+
+    const world = this.viewport.toWorld(point);
+    const other = line.data[gesture.which === "start" ? "end" : "start"];
+    const otherPoint = endPosition(other, this.items);
+    // A line can't have both ends on one card, so that card's hotspots are off.
+    const otherCard = attachedCard(other, this.items)?.id ?? null;
+    const hit = nearestHotspot(this.items, world, gesture.reach / this.viewport.zoom, {
+      skipId: otherCard,
+      awayFrom: otherPoint
+    });
+
+    if (hit) {
+      line.data[gesture.which] = { x: hit.x, y: hit.y, item: hit.item, side: hit.side };
+    } else {
+      let spot = this.snapping() ? { x: snapToGrid(world.x), y: snapToGrid(world.y) } : world;
+      spot = keepApart(spot, otherPoint, MIN_LENGTH);
+      line.data[gesture.which] = { x: clampCoordinate(spot.x), y: clampCoordinate(spot.y) };
+    }
+
+    this.syncConnector(line.id);
+    this.showHotspots(world, hit, otherCard);
+  }
+
+  // Dots on the sides of the cards near the pointer; the one it would attach to
+  // is highlighted.
+  showHotspots(world, hit, skipId) {
+    const markers = [];
+
+    for (const card of cardsNear(this.items, world, HOTSPOT_REACH / this.viewport.zoom, skipId)) {
+      for (const side of SIDES) {
+        const spot = hotspotPoint(card, side);
+        const marker = document.createElement("div");
+
+        marker.className = hit?.item === card.id && hit.side === side ? "hotspot is-active" : "hotspot";
+        marker.style.left = `${spot.x}px`;
+        marker.style.top = `${spot.y}px`;
+        markers.push(marker);
+      }
+    }
+
+    this.layers.hotspot.replaceChildren(...markers);
+  }
+
+  hideHotspots() {
+    this.layers.hotspot.replaceChildren();
   }
 
   // ---- Selection and menu -----------------------------------------------
@@ -1032,7 +1336,7 @@ export class BoardView {
     }
 
     let z = this.maxZ();
-    const created = cards.map((source) => {
+    const copies = cards.map((source) => {
       const copy = structuredClone(source);
       copy.id = crypto.randomUUID();
       copy.x = source.x - left + x;
@@ -1043,9 +1347,13 @@ export class BoardView {
         copy.data.entries = copy.data.entries.map((entry) => ({ ...entry, id: crypto.randomUUID() }));
       }
 
-      this.addItem(copy);
-      return copy.id;
+      return copy;
     });
+
+    this.retargetLines(copies, new Map(cards.map((source, index) => [source.id, copies[index].id])), x - left, y - top);
+
+    const created = copies.map((copy) => this.addItem(copy).id);
+    this.syncConnectors();
 
     this.setSelection(created);
     this.itemsChanged();
@@ -1123,6 +1431,11 @@ export class BoardView {
     const item = this.items.get(id);
     const element = target instanceof Element ? target : null;
 
+    // Lines have nothing to edit.
+    if (item.type === "connector") {
+      return;
+    }
+
     if (item.type === "folder" && !element?.closest(".folder-name")) {
       this.callbacks.onOpenBoard(item.data.childBoardId, item.data.name);
     } else {
@@ -1187,6 +1500,8 @@ export class BoardView {
       this.gesture = { type: "pan", start: point, last: point, moved: false };
     } else if (id && target.closest(".resize-handle")) {
       this.startResize(id, point);
+    } else if (id && target.closest(".connector-handle")) {
+      this.startEndpoint(id, target.closest(".connector-handle").dataset.end, event, point);
     } else if (id && target.closest(".entry-handle")) {
       this.startReorder(id, target.closest(".entry"), point);
     } else if (id) {
@@ -1254,6 +1569,8 @@ export class BoardView {
       this.updateDrag(gesture, point);
     } else if (gesture.type === "resize") {
       this.updateResize(gesture, point);
+    } else if (gesture.type === "endpoint") {
+      this.updateEndpoint(gesture, point);
     } else if (gesture.type === "marquee") {
       this.updateMarquee(gesture, point);
     } else if (gesture.type === "reorder") {
@@ -1296,7 +1613,7 @@ export class BoardView {
       } else {
         this.tapCard(gesture, event);
       }
-    } else if (gesture.type === "resize" || gesture.type === "reorder") {
+    } else if (gesture.type === "resize" || gesture.type === "reorder" || gesture.type === "endpoint") {
       this.endEdit(gesture);
     } else if (gesture.type === "marquee") {
       gesture.element.remove();
@@ -1313,7 +1630,7 @@ export class BoardView {
 
     if (gesture?.type === "card" && gesture.moved) {
       this.endDrag(gesture);
-    } else if (gesture?.type === "resize" || gesture?.type === "reorder") {
+    } else if (gesture?.type === "resize" || gesture?.type === "reorder" || gesture?.type === "endpoint") {
       this.endEdit(gesture);
     } else if (gesture?.type === "marquee") {
       gesture.element.remove();
@@ -1411,9 +1728,10 @@ export class BoardView {
     }
   }
 
-  // Dragging a section also moves the cards whose centre is inside it.
+  // Dragging a section also moves the cards (and lines) whose centre is inside it.
   startDrag(gesture) {
     const ids = new Set([...this.selected].filter((id) => this.items.has(id)));
+    const chosen = new Set(ids);
 
     for (const id of [...ids]) {
       const section = this.items.get(id);
@@ -1438,6 +1756,17 @@ export class BoardView {
 
     gesture.before = this.capture([...ids]);
     gesture.origins = new Map([...ids].map((id) => [id, { x: this.items.get(id).x, y: this.items.get(id).y }]));
+
+    // Lines go by their ends, not their box.
+    gesture.lines = new Map();
+
+    for (const id of ids) {
+      const item = this.items.get(id);
+
+      if (item.type === "connector") {
+        gesture.lines.set(id, this.startLineMove(item, ids, !chosen.has(id)));
+      }
+    }
   }
 
   // The grabbed card's top-left corner lands on the grid (unless Shift is
@@ -1456,12 +1785,19 @@ export class BoardView {
     for (const [id, origin] of gesture.origins) {
       const item = this.items.get(id);
 
-      if (item) {
+      if (item && !gesture.lines.has(id)) {
         item.x = clampCoordinate(origin.x + dx);
         item.y = clampCoordinate(origin.y + dy);
         positionCard(this.elements.get(id), item);
       }
     }
+
+    // Lines move after the cards, so ends attached to them land on the new spots.
+    for (const [id, ends] of gesture.lines) {
+      this.moveLine(id, ends, dx, dy);
+    }
+
+    this.refreshLines([...gesture.origins.keys()]);
   }
 
   endDrag(gesture) {
@@ -1527,11 +1863,14 @@ export class BoardView {
     item.w = Math.round(width);
     item.h = Math.round(height);
     positionCard(this.elements.get(gesture.id), item);
+    this.refreshLines([item.id]);
   }
 
   endEdit(gesture) {
     if (gesture.type === "reorder") {
       this.endReorder(gesture);
+    } else if (gesture.type === "endpoint") {
+      this.hideHotspots();
     }
 
     if (gesture.moved) {
@@ -1631,9 +1970,20 @@ export class BoardView {
     const selected = new Set(gesture.base);
 
     for (const item of this.items.values()) {
-      const inside = item.type === "section"
-        ? item.x >= from.x && item.x + item.w <= to.x && item.y >= from.y && item.y + item.h <= to.y
-        : item.x < to.x && item.x + item.w > from.x && item.y < to.y && item.y + item.h > from.y;
+      let inside;
+
+      if (item.type === "section") {
+        inside = item.x >= from.x && item.x + item.w <= to.x && item.y >= from.y && item.y + item.h <= to.y;
+      } else if (item.type === "connector") {
+        // A line is touched where it crosses the marquee, not by its box.
+        inside = segmentTouchesRect(
+          item.data.start,
+          item.data.end,
+          { left: from.x, top: from.y, right: to.x, bottom: to.y }
+        );
+      } else {
+        inside = item.x < to.x && item.x + item.w > from.x && item.y < to.y && item.y + item.h > from.y;
+      }
 
       if (inside) {
         selected.add(item.id);
