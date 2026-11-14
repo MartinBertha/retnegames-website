@@ -3,6 +3,7 @@
 // Paste uses the last cards copied on this device, kept in localStorage.
 
 import { DIRECTIONS, SIDES } from "./connectors.js";
+import { sanitizeStyle } from "./styles.js";
 
 export const CARDS_MIME = "application/x-retne-hub-cards";
 
@@ -53,7 +54,13 @@ export function parsePayload(text) {
       return null;
     }
 
-    const items = payload.items.filter(isCard).slice(0, 2_000);
+    // A copied style is kept only as far as it is valid for its kind of card.
+    const items = payload.items.filter(isCard).slice(0, 2_000).map((item) => {
+      const { style, ...data } = item.data;
+      const clean = sanitizeStyle(item.type, style);
+      return { ...item, data: clean ? { ...data, style: clean } : data };
+    });
+
     return items.length ? { ...payload, items } : null;
   } catch {
     return null;

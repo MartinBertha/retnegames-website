@@ -1,22 +1,8 @@
 // Card menu (docs/hub-spec.md, section 6): right-click, long-press on touch,
-// or the Menu key / Shift+F10. Acts on the selected cards. On empty canvas it
-// only offers Paste.
+// or the Menu key / Shift+F10. Actions on the selected cards only: how an
+// object looks is changed in the property bar (properties.js). On empty canvas
+// it only offers Paste.
 
-import { COLORS } from "./cards.js";
-
-const COLOR_NAMES = {
-  grey: "Grey",
-  red: "Red",
-  orange: "Orange",
-  yellow: "Yellow",
-  green: "Green",
-  teal: "Teal",
-  blue: "Blue",
-  purple: "Purple"
-};
-
-const NOTE_SIZES = [["s", "Small text"], ["m", "Medium text"], ["l", "Large text"]];
-const LINE_SHAPES = [["straight", "Straight"], ["elbow", "Right angle"]];
 const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 const EDGE_GAP = 8;
 
@@ -66,10 +52,8 @@ export class CardMenu {
     return !this.element.hidden;
   }
 
-  // colors: colours of the selected cards; noteSizes: their note sizes (empty if
-  // no notes); lineShapes: the types of the selected lines (empty if no lines);
   // canPaste: there are copied cards; canvas: the empty-canvas menu.
-  open(x, y, { colors, noteSizes, lineShapes = new Set(), canPaste = false, canvas = false }) {
+  open(x, y, { canPaste = false, canvas = false }) {
     const add = (item, action) => {
       item.addEventListener("click", () => {
         this.close();
@@ -102,58 +86,7 @@ export class CardMenu {
       return;
     }
 
-    const swatches = document.createElement("div");
-    swatches.className = "menu-swatches";
-    swatches.setAttribute("role", "group");
-    swatches.setAttribute("aria-label", "Colour");
-
-    for (const color of [null, ...COLORS]) {
-      const swatch = button("menu-swatch", color ? COLOR_NAMES[color] : "Default colour", {
-        text: "",
-        role: "menuitemradio",
-        checked: colors.size === 1 && colors.has(color)
-      });
-      swatch.dataset.color = color ?? "default";
-      swatch.title = color ? COLOR_NAMES[color] : "Default";
-      swatches.append(add(swatch, { type: "color", value: color }));
-    }
-
-    const children = [swatches];
-
-    if (noteSizes.size) {
-      const sizes = document.createElement("div");
-      sizes.className = "menu-sizes";
-      sizes.setAttribute("role", "group");
-      sizes.setAttribute("aria-label", "Text size");
-
-      for (const [size, label] of NOTE_SIZES) {
-        const item = button("menu-size", label, {
-          text: size.toUpperCase(),
-          role: "menuitemradio",
-          checked: noteSizes.size === 1 && noteSizes.has(size)
-        });
-        sizes.append(add(item, { type: "size", value: size }));
-      }
-
-      children.push(sizes);
-    }
-
-    if (lineShapes.size) {
-      const shapes = document.createElement("div");
-      shapes.className = "menu-sizes";
-      shapes.setAttribute("role", "group");
-      shapes.setAttribute("aria-label", "Line type");
-
-      for (const [shape, label] of LINE_SHAPES) {
-        const item = button("menu-size", label, {
-          role: "menuitemradio",
-          checked: lineShapes.size === 1 && lineShapes.has(shape)
-        });
-        shapes.append(add(item, { type: "lineShape", value: shape }));
-      }
-
-      children.push(shapes);
-    }
+    const children = [];
 
     children.push(
       add(withHint("Copy", `${MOD}C`), { type: "copy" }),

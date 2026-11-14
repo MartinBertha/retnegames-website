@@ -8,6 +8,7 @@ import { httpUrl } from "./cards.js";
 import { CARDS_MIME, makePayload, parsePayload, payloadText, storedPayload, storePayload } from "./clipboard.js";
 import { IMAGE_ACCEPT, imageFileProblem, prepareImage } from "./images.js";
 import { initPalette } from "./palette.js";
+import { PropertyBar } from "./properties.js";
 import { Saver } from "./saver.js";
 import { initThemeToggle } from "./theme-toggle.js";
 import { hideToast, showToast } from "./toast.js";
@@ -133,6 +134,7 @@ const view = new BoardView(
       showZoomLevel();
     },
     onItemsChange: showEmptyHint,
+    onProperties: (items) => properties.show(items),
     onHistoryChange: (history) => {
       undoButton.disabled = !history.canUndo;
       redoButton.disabled = !history.canRedo;
@@ -157,6 +159,9 @@ const view = new BoardView(
     onNotice: (message) => showToast(message, { tone: "error", timeout: 7000 })
   }
 );
+
+// What is selected decides which properties can be edited (properties.js).
+const properties = new PropertyBar(document.getElementById("property-bar"), (change) => view.applyProperty(change));
 
 function showSaveStatus(state) {
   // Screen readers hear about problems, not every "Saving…".

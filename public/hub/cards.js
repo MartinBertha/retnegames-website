@@ -3,13 +3,14 @@
 
 import { fileUrl } from "./api.js";
 import { DEFAULT_LENGTH, DEFAULT_RISE, linePoints } from "./connectors.js";
+import { COLOR_KEYS, styleVars } from "./styles.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const URL_PATTERN = /https?:\/\/[^\s<>"]+/gi;
 const TRAILING_PUNCTUATION = ".,;:!?'";
 const ROW_MOVE_MS = 180;
 
-export const COLORS = ["grey", "red", "orange", "yellow", "green", "teal", "blue", "purple"];
+export const COLORS = COLOR_KEYS;
 
 // Default sizes are whole cells of the 24px grid.
 export const CARD_TYPES = {
@@ -163,7 +164,12 @@ function connectorParts() {
 }
 
 const STRUCTURE = {
-  note: () => [el("div", "note-title"), el("div", "note-text")],
+  // The text sits in an inner element so the box can align it vertically.
+  note: () => {
+    const text = el("div", "note-text");
+    text.append(el("div", "note-text-inner"));
+    return [el("div", "note-title"), text];
+  },
   checklist: () => {
     const add = el("button", "entry-add card-control", "+ Add item");
     add.type = "button";
@@ -316,14 +322,11 @@ export function renderChecklist(card, item, { editing = false } = {}) {
 
 const RENDERERS = {
   note(card, item) {
-    card.classList.toggle("note-s", item.data.size === "s");
-    card.classList.toggle("note-l", item.data.size === "l");
-
     const title = card.querySelector(".note-title");
     title.textContent = item.data.title ?? "";
     title.hidden = !item.data.title;
 
-    const text = card.querySelector(".note-text");
+    const text = card.querySelector(".note-text-inner");
     text.replaceChildren();
     appendLinkedText(text, item.data.text);
   },
@@ -401,14 +404,38 @@ const RENDERERS = {
   }
 };
 
-export function updateCardElement(card, item) {
-  positionCard(card, item);
+// The custom properties set from an object's style, per card, so the next
+// update can remove the ones that no longer apply.
+const styled = new WeakMap();
 
+// The fill colour and the style (text, opacity), without touching the card's
+// content: safe while the card is being edited.
+export function applyCardStyle(card, item) {
   if (COLORS.includes(item.color)) {
     card.dataset.color = item.color;
   } else {
     delete card.dataset.color;
   }
+
+  const vars = styleVars(item);
+  const before = styled.get(card) ?? [];
+
+  for (const name of before) {
+    if (!(name in vars)) {
+      card.style.removeProperty(name);
+    }
+  }
+
+  for (const [name, value] of Object.entries(vars)) {
+    card.style.setProperty(name, value);
+  }
+
+  styled.set(card, Object.keys(vars));
+}
+
+export function updateCardElement(card, item) {
+  positionCard(card, item);
+  applyCardStyle(card, item);
 
   const key = JSON.stringify(item.data);
 

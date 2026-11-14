@@ -18,10 +18,47 @@ export const LIMITS = {
 };
 
 // Card colours (palette keys); null is the default card colour.
-export const PALETTE = new Set(["grey", "red", "orange", "yellow", "green", "teal", "blue", "purple"]);
+// The first eight are the original palette; null (the default) makes 16.
+export const PALETTE = new Set([
+  "grey", "slate", "brown", "sand", "red", "pink", "orange", "yellow",
+  "lime", "green", "teal", "cyan", "blue", "indigo", "purple"
+]);
+
+// What each object type lets you style (public/hub/styles.js has the same
+// table, and a test keeps them equal): its pieces of text, and for each the
+// properties that can be set. `sizes` narrows the text sizes (default s to xl).
+export const STYLE_RULES = {
+  note: {
+    alpha: true,
+    sets: {
+      title: { props: ["color", "font", "size", "bold", "italic", "align"] },
+      body: { props: ["color", "font", "size", "bold", "italic", "align", "valign"] }
+    }
+  },
+  checklist: {
+    alpha: true,
+    sets: {
+      title: { props: ["color", "font", "size", "bold", "italic"] },
+      items: { props: ["color", "font", "size", "bold", "italic"] }
+    }
+  },
+  image: { alpha: true, sets: { caption: { props: ["size", "align"] } } },
+  link: { alpha: true, sets: { text: { props: ["color", "font", "size", "bold", "italic", "align", "valign"] } } },
+  section: { alpha: true, sets: { title: { props: ["color", "font", "size", "align"] } } },
+  folder: { alpha: false, sets: { label: { props: ["color", "size", "bold"], sizes: ["s", "m", "l"] } } },
+  connector: { alpha: true, sets: {} }
+};
+
+const STYLE_ALPHAS = new Set([100, 75, 50, 25]);
+const STYLE_VALUES = {
+  font: new Set(["sans", "serif", "mono"]),
+  size: ["s", "m", "l", "xl"],
+  align: new Set(["left", "center", "right"]),
+  valign: new Set(["top", "middle", "bottom"])
+};
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const NOTE_SIZES = new Set(["s", "m", "l"]);
+const NOTE_SIZES = new Set(["s", "m", "l", "xl"]);
 // The sides of a card a line can attach to (the middle of each).
 const LINE_SIDES = new Set(["top", "right", "bottom", "left"]);
 // The way a right-angle line leaves one of its ends.
@@ -160,6 +197,74 @@ function cleanLineEnd(end) {
   return { ...point, item: end.item, side: end.side };
 }
 
+// One piece of text's style: only the properties the object offers are kept
+// (others are dropped), and a value out of range is rejected.
+function cleanTextStyle(style, rules) {
+  if (!isPlainObject(style)) {
+    invalid("Invalid style.");
+  }
+
+  const clean = {};
+
+  for (const prop of rules.props) {
+    const value = style[prop];
+
+    if (value === undefined) {
+      continue;
+    }
+
+    const allowed = prop === "color" ? PALETTE.has(value)
+      : prop === "bold" || prop === "italic" ? typeof value === "boolean"
+        : prop === "size" ? (rules.sizes ?? STYLE_VALUES.size).includes(value)
+          : STYLE_VALUES[prop].has(value);
+
+    if (!allowed) {
+      invalid("Invalid style.");
+    }
+
+    clean[prop] = value;
+  }
+
+  return clean;
+}
+
+// data.style for an object of this type: { alpha?, <text>: {...} }, or
+// undefined when it holds nothing (100% opacity is the default).
+function cleanStyle(type, style) {
+  if (style === undefined || style === null) {
+    return undefined;
+  }
+
+  if (!isPlainObject(style)) {
+    invalid("Invalid style.");
+  }
+
+  const rules = STYLE_RULES[type];
+  const clean = {};
+
+  if (style.alpha !== undefined) {
+    if (!rules.alpha || !STYLE_ALPHAS.has(style.alpha)) {
+      invalid("Invalid opacity.");
+    }
+
+    if (style.alpha !== 100) {
+      clean.alpha = style.alpha;
+    }
+  }
+
+  for (const [key, setRules] of Object.entries(rules.sets)) {
+    if (style[key] !== undefined) {
+      const text = cleanTextStyle(style[key], setRules);
+
+      if (Object.keys(text).length) {
+        clean[key] = text;
+      }
+    }
+  }
+
+  return Object.keys(clean).length ? clean : undefined;
+}
+
 // Normalised data per card type; unknown keys are dropped.
 const DATA_VALIDATORS = {
   // The title is optional (notes saved before it existed have none).
@@ -281,6 +386,12 @@ export function validateItem(raw) {
     ? { min: 0, max: coordinate * 2 }
     : { min: LIMITS.minSize, max: LIMITS.maxSize };
   const data = DATA_VALIDATORS[raw.type](raw.data);
+  const style = cleanStyle(raw.type, raw.data.style);
+
+  if (style) {
+    data.style = style;
+  }
+
   const dataJson = JSON.stringify(data);
 
   if (new TextEncoder().encode(dataJson).length > LIMITS.dataBytes) {

@@ -42,7 +42,14 @@
   --tone-teal: #1f3432;
   --tone-blue: #222d3f;
   --tone-purple: #31263d;
-  /* The same colours as strokes, for lines. */
+  --tone-slate: #272f38;
+  --tone-brown: #3a2d24;
+  --tone-sand: #38342b;
+  --tone-pink: #40262f;
+  --tone-lime: #323a1f;
+  --tone-cyan: #1d3640;
+  --tone-indigo: #272a45;
+  /* The same colours as strokes, for text and lines. */
   --ink-grey: #a3a29b;
   --ink-red: #e0817a;
   --ink-orange: #e3a05f;
@@ -51,10 +58,20 @@
   --ink-teal: #6fc2b6;
   --ink-blue: #7fa6e6;
   --ink-purple: #b394df;
+  --ink-slate: #93a4b8;
+  --ink-brown: #c49a7a;
+  --ink-sand: #d8c9a0;
+  --ink-pink: #e58fb0;
+  --ink-lime: #b5d654;
+  --ink-cyan: #5fc4dc;
+  --ink-indigo: #8f9be8;
   --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 18px rgba(0, 0, 0, 0.28);
   --popup-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
   --font-dos: "Perfect DOS VGA 437", ui-monospace, monospace;
   --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* The other two choices for text on cards: system fonts too. */
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --radius: 4px;
   --radius-small: 2px;
   --topbar-height: 56px;
@@ -91,6 +108,13 @@
   --tone-teal: #d4ebe7;
   --tone-blue: #dae4f4;
   --tone-purple: #e8def4;
+  --tone-slate: #dde3ea;
+  --tone-brown: #eadbcd;
+  --tone-sand: #efe8d4;
+  --tone-pink: #f8dbe6;
+  --tone-lime: #e6f0c8;
+  --tone-cyan: #d0ecf3;
+  --tone-indigo: #dde0f5;
   --ink-grey: #6b6960;
   --ink-red: #c4463d;
   --ink-orange: #c2701f;
@@ -99,6 +123,13 @@
   --ink-teal: #2b8a7d;
   --ink-blue: #3b6cc4;
   --ink-purple: #7f55b8;
+  --ink-slate: #4d6075;
+  --ink-brown: #8a5a3a;
+  --ink-sand: #7f6f3a;
+  --ink-pink: #c2467a;
+  --ink-lime: #5b7d0a;
+  --ink-cyan: #1c7f9a;
+  --ink-indigo: #4a56b5;
   --card-shadow: 0 1px 2px rgba(28, 27, 24, 0.12), 0 6px 18px rgba(28, 27, 24, 0.08);
   --popup-shadow: 0 12px 32px rgba(28, 27, 24, 0.18);
 }
@@ -570,23 +601,31 @@ body.is-placing * {
 
 /* Sizes are in world pixels; --zoom (set on .world) keeps outlines and handles
    the same size on screen at any zoom. */
+/* --alpha (set from the card's style) is how opaque the fill is, 1 to 0.25. */
 .card {
   position: absolute;
   overflow: hidden;
   border: 1px solid var(--card-border);
   border-radius: var(--radius);
-  background: var(--card-bg);
+  background: color-mix(in srgb, var(--card-bg) calc(var(--alpha, 1) * 100%), transparent);
   box-shadow: var(--card-shadow);
   color: var(--text);
 }
 
 .card[data-color="grey"] { --card-bg: var(--tone-grey); }
+.card[data-color="slate"] { --card-bg: var(--tone-slate); }
+.card[data-color="brown"] { --card-bg: var(--tone-brown); }
+.card[data-color="sand"] { --card-bg: var(--tone-sand); }
 .card[data-color="red"] { --card-bg: var(--tone-red); }
+.card[data-color="pink"] { --card-bg: var(--tone-pink); }
 .card[data-color="orange"] { --card-bg: var(--tone-orange); }
 .card[data-color="yellow"] { --card-bg: var(--tone-yellow); }
+.card[data-color="lime"] { --card-bg: var(--tone-lime); }
 .card[data-color="green"] { --card-bg: var(--tone-green); }
 .card[data-color="teal"] { --card-bg: var(--tone-teal); }
+.card[data-color="cyan"] { --card-bg: var(--tone-cyan); }
 .card[data-color="blue"] { --card-bg: var(--tone-blue); }
+.card[data-color="indigo"] { --card-bg: var(--tone-indigo); }
 .card[data-color="purple"] { --card-bg: var(--tone-purple); }
 
 .card.is-selected {
@@ -649,23 +688,30 @@ body.is-placing * {
   flex-direction: column;
 }
 
+/* Text on cards is styled through custom properties set on the card from its
+   style (styles.js): --title-size, --body-color and so on. The fallbacks are
+   how everything looked before text could be styled. */
+
 .note-title,
 .note-title-editor {
   flex: none;
   width: 100%;
   margin: 0;
   padding: 11px 14px 0;
-  font-size: 20px;
-  font-weight: 700;
+  color: var(--title-color, inherit);
+  font-family: var(--title-font, inherit);
+  font-size: var(--title-size, 20px);
+  font-style: var(--title-style, normal);
+  font-weight: var(--title-weight, 700);
   line-height: 1.25;
   letter-spacing: -0.01em;
+  text-align: var(--title-align, left);
   overflow-wrap: anywhere;
 }
 
 .note-title-editor {
   border: 0;
   background: transparent;
-  color: inherit;
   outline: none;
 }
 
@@ -677,8 +723,13 @@ body.is-placing * {
   min-height: 0;
   margin: 0;
   padding: 12px 14px;
-  font-size: 16px;
-  line-height: 1.45;
+  color: var(--body-color, inherit);
+  font-family: var(--body-font, inherit);
+  font-size: var(--body-size, 16px);
+  font-style: var(--body-style, normal);
+  font-weight: var(--body-weight, 400);
+  line-height: var(--body-leading, 1.45);
+  text-align: var(--body-align, left);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -688,7 +739,12 @@ body.is-placing * {
   padding-top: 4px;
 }
 
+/* The text sits at the top, middle or bottom of the card ("safe": text taller
+   than the card starts at the top, so the card can measure it). */
 .note-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: safe var(--body-valign, flex-start);
   overflow: hidden;
 }
 
@@ -696,7 +752,6 @@ body.is-placing * {
   overflow: hidden;
   border: 0;
   background: transparent;
-  color: inherit;
   outline: none;
   resize: none;
 }
@@ -705,27 +760,6 @@ body.is-placing * {
 .note-editor::placeholder {
   color: var(--muted);
   opacity: 0.7;
-}
-
-.note-s .note-text,
-.note-s .note-editor {
-  font-size: 14px;
-}
-
-.note-s .note-title,
-.note-s .note-title-editor {
-  font-size: 17px;
-}
-
-.note-l .note-text,
-.note-l .note-editor {
-  font-size: 22px;
-  line-height: 1.3;
-}
-
-.note-l .note-title,
-.note-l .note-title-editor {
-  font-size: 28px;
 }
 
 /* Folders: just the icon with the name below, no card behind them. */
@@ -761,8 +795,9 @@ body.is-placing * {
   display: -webkit-box;
   max-width: 100%;
   overflow: hidden;
-  font-size: 15px;
-  font-weight: 550;
+  color: var(--label-color, inherit);
+  font-size: var(--label-size, 15px);
+  font-weight: var(--label-weight, 550);
   line-height: 1.3;
   text-align: center;
   overflow-wrap: anywhere;
@@ -793,8 +828,11 @@ body.is-placing * {
 .checklist-head {
   flex: none;
   padding: 1px 2px 8px;
-  font-size: 19px;
-  font-weight: 700;
+  color: var(--title-color, inherit);
+  font-family: var(--title-font, inherit);
+  font-size: var(--title-size, 19px);
+  font-style: var(--title-style, normal);
+  font-weight: var(--title-weight, 700);
   line-height: 1.25;
   letter-spacing: -0.01em;
   overflow-wrap: anywhere;
@@ -812,7 +850,11 @@ body.is-placing * {
   align-items: flex-start;
   gap: 6px;
   padding: 3px 0;
-  font-size: 14px;
+  color: var(--items-color, inherit);
+  font-family: var(--items-font, inherit);
+  font-size: var(--items-size, 14px);
+  font-style: var(--items-style, normal);
+  font-weight: var(--items-weight, 400);
   line-height: 1.4;
 }
 
@@ -901,12 +943,12 @@ body.is-placing * {
   padding: 0;
   background: transparent;
   color: inherit;
+  font: inherit;
   outline: none;
 }
 
 .checklist-title-editor {
   width: 100%;
-  font-weight: 700;
 }
 
 .checklist-title-editor:focus,
@@ -949,6 +991,7 @@ body.is-placing * {
   width: 100%;
   min-height: 0;
   object-fit: contain;
+  opacity: var(--alpha, 1);
   -webkit-user-drag: none;
 }
 
@@ -957,7 +1000,8 @@ body.is-placing * {
   overflow: hidden;
   padding: 6px 10px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--caption-size, 13px);
+  text-align: var(--caption-align, left);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -981,16 +1025,19 @@ body.is-placing * {
 .card-link {
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: var(--text-valign, center);
   gap: 2px;
   padding: 12px 14px;
+  text-align: var(--text-align, left);
 }
 
 .card .link-title {
   overflow: hidden;
-  color: var(--accent);
-  font-size: 15px;
-  font-weight: 600;
+  color: var(--text-color, var(--accent));
+  font-family: var(--text-font, inherit);
+  font-size: var(--text-size, 15px);
+  font-style: var(--text-style, normal);
+  font-weight: var(--text-weight, 600);
   text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1000,10 +1047,13 @@ body.is-placing * {
   text-decoration: underline;
 }
 
+/* The address line is a little smaller than the title, and follows its style. */
 .link-host {
   overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--text-color, var(--muted));
+  font-family: var(--text-font, inherit);
+  font-size: calc(var(--text-size, 15px) * 0.8);
+  font-style: var(--text-style, normal);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1043,7 +1093,7 @@ body.is-placing * {
 .card-section {
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius);
-  background: var(--section-bg);
+  background: color-mix(in srgb, var(--section-bg) calc(var(--alpha, 1) * 100%), transparent);
   box-shadow: none;
   pointer-events: none;
 }
@@ -1051,16 +1101,19 @@ body.is-placing * {
 .card-section[data-color] {
   border-style: solid;
   border-color: color-mix(in srgb, var(--card-bg), var(--mix-contrast) 14%);
-  background: color-mix(in srgb, var(--card-bg) 60%, transparent);
+  background: color-mix(in srgb, var(--card-bg) calc(60% * var(--alpha, 1)), transparent);
 }
 
 .section-title {
   display: block;
   overflow: hidden;
   padding: 10px 14px;
-  font-size: 22px;
+  color: var(--title-color, inherit);
+  font-family: var(--title-font, inherit);
+  font-size: var(--title-size, 22px);
   font-weight: 700;
   line-height: 1.25;
+  text-align: var(--title-align, left);
   letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1101,12 +1154,19 @@ body.is-placing * {
 }
 
 .card-connector[data-color="grey"] { color: var(--ink-grey); }
+.card-connector[data-color="slate"] { color: var(--ink-slate); }
+.card-connector[data-color="brown"] { color: var(--ink-brown); }
+.card-connector[data-color="sand"] { color: var(--ink-sand); }
 .card-connector[data-color="red"] { color: var(--ink-red); }
+.card-connector[data-color="pink"] { color: var(--ink-pink); }
 .card-connector[data-color="orange"] { color: var(--ink-orange); }
 .card-connector[data-color="yellow"] { color: var(--ink-yellow); }
+.card-connector[data-color="lime"] { color: var(--ink-lime); }
 .card-connector[data-color="green"] { color: var(--ink-green); }
 .card-connector[data-color="teal"] { color: var(--ink-teal); }
+.card-connector[data-color="cyan"] { color: var(--ink-cyan); }
 .card-connector[data-color="blue"] { color: var(--ink-blue); }
+.card-connector[data-color="indigo"] { color: var(--ink-indigo); }
 .card-connector[data-color="purple"] { color: var(--ink-purple); }
 
 /* The selection and focus show on the line, not on its box. */
@@ -1128,6 +1188,7 @@ body.is-placing * {
   fill: none;
   stroke: currentColor;
   stroke-width: max(2px, calc(1.5px / var(--zoom, 1)));
+  opacity: var(--alpha, 1);
 }
 
 .connector-arrowhead {
@@ -1251,58 +1312,6 @@ body.is-placing * {
   box-shadow: var(--popup-shadow);
 }
 
-.menu-swatches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px;
-}
-
-.menu-swatch {
-  width: 22px;
-  height: 22px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-small);
-  padding: 0;
-  background: var(--card-bg);
-  cursor: pointer;
-}
-
-.menu-swatch[data-color="grey"] { background: var(--tone-grey); }
-.menu-swatch[data-color="red"] { background: var(--tone-red); }
-.menu-swatch[data-color="orange"] { background: var(--tone-orange); }
-.menu-swatch[data-color="yellow"] { background: var(--tone-yellow); }
-.menu-swatch[data-color="green"] { background: var(--tone-green); }
-.menu-swatch[data-color="teal"] { background: var(--tone-teal); }
-.menu-swatch[data-color="blue"] { background: var(--tone-blue); }
-.menu-swatch[data-color="purple"] { background: var(--tone-purple); }
-
-.menu-swatch[aria-checked="true"] {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.menu-sizes {
-  display: flex;
-  gap: 4px;
-  padding: 2px 4px 4px;
-}
-
-.menu-size {
-  flex: 1;
-  min-height: 32px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-small);
-  background: none;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.menu-size[aria-checked="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 .menu-item {
   display: flex;
   align-items: center;
@@ -1320,7 +1329,6 @@ body.is-placing * {
 }
 
 .menu-item:hover,
-.menu-size:hover,
 .menu-item:focus-visible {
   background: var(--hover-strong);
 }
@@ -1369,10 +1377,184 @@ body.is-placing * {
   .menu-item {
     min-height: 44px;
   }
+}
 
-  .menu-swatch {
-    width: 30px;
-    height: 30px;
+/* ---- Property bar ------------------------------------------------------------
+   Over the left edge of the canvas (the board doesn't move), a strip above the
+   toolbar on phones. Shown while objects of one kind are selected. */
+
+.property-bar {
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 232px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
+}
+
+.prop-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prop-group + .prop-group {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.prop-heading {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.prop-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.prop-label {
+  flex: none;
+  width: 100%;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.prop-seg {
+  display: flex;
+  gap: 4px;
+}
+
+.prop-button,
+.prop-colour {
+  min-width: 36px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  padding: 0 8px;
+  background: none;
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.prop-button:hover,
+.prop-colour:hover {
+  background: var(--hover-strong);
+}
+
+.prop-button[aria-checked="true"],
+.prop-button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--hover);
+  color: var(--accent);
+}
+
+.prop-button[aria-pressed="mixed"] {
+  border-style: dashed;
+}
+
+.prop-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.prop-bold { font-weight: 800; }
+.prop-italic { font-style: italic; }
+.prop-font-sans { font-family: var(--font-sans); }
+.prop-font-serif { font-family: var(--font-serif); }
+.prop-font-mono { font-family: var(--font-mono); }
+
+.prop-colour {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+.prop-colour[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+/* A colour: the swatch takes --swatch; a mixed selection is striped. */
+.swatch,
+.swatch-button {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  padding: 0;
+  background: var(--swatch, var(--card-bg));
+}
+
+.swatch.is-mixed {
+  background: repeating-linear-gradient(135deg, var(--line-strong) 0 3px, transparent 3px 6px);
+}
+
+.color-grid {
+  position: fixed;
+  z-index: 110;
+  display: grid;
+  grid-template-columns: repeat(4, 30px);
+  gap: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 10px;
+  background: var(--surface);
+  box-shadow: var(--popup-shadow);
+}
+
+.swatch-button {
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+}
+
+.swatch-button[aria-checked="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .prop-button,
+  .prop-colour {
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .color-grid {
+    grid-template-columns: repeat(4, 44px);
+  }
+
+  .swatch-button {
+    width: 44px;
+    height: 44px;
   }
 }
 
@@ -1447,6 +1629,51 @@ body.is-placing * {
   .zoom-controls {
     right: 8px;
     bottom: 8px;
+  }
+
+  /* The property bar becomes a strip along the bottom of the board, above the
+     toolbar, that scrolls sideways; the zoom controls move up out of its way. */
+  .property-bar {
+    top: auto;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    width: auto;
+    max-height: none;
+    overflow: auto hidden;
+    padding: 6px 8px;
+  }
+
+  .prop-group {
+    flex: none;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .prop-group + .prop-group {
+    border-top: 0;
+    border-left: 1px solid var(--line);
+    padding: 0 0 0 12px;
+  }
+
+  .prop-row {
+    flex-wrap: nowrap;
+  }
+
+  .prop-label {
+    width: auto;
+  }
+
+  .prop-colour {
+    width: auto;
+  }
+
+  .canvas.has-properties .zoom-controls {
+    bottom: 80px;
   }
 }
 

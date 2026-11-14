@@ -10,6 +10,7 @@
 import { moveEntry, toggleEntry } from "./checklist.js";
 import {
   CARD_TYPES,
+  applyCardStyle,
   createCardElement,
   invalidateCard,
   positionCard,
@@ -34,6 +35,7 @@ import {
 import { startEditor } from "./editors.js";
 import { History } from "./history.js";
 import { CardMenu } from "./menu.js";
+import { setAlpha, setTextValue } from "./styles.js";
 import { GRID, Viewport } from "./viewport.js";
 
 const COORDINATE_LIMIT = 1_000_000;
@@ -190,6 +192,11 @@ export class BoardView {
       }
 
       event.preventDefault();
+
+      // The property bar has no menu of its own.
+      if (target?.closest(".property-bar")) {
+        return;
+      }
 
       if (!card) {
         this.openCanvasMenu(event.clientX, event.clientY);
@@ -1158,6 +1165,7 @@ export class BoardView {
     }
 
     this.commitChange(before);
+    this.notifyProperties();
   }
 
   // Pointer down on a line's end handle: drag it to stretch the line, onto a
@@ -1249,6 +1257,90 @@ export class BoardView {
     }
 
     this.callbacks.onSelectionChange?.(this.selected.size);
+    this.notifyProperties();
+  }
+
+  // ---- Properties (the property bar) --------------------------------------
+
+  // The selected objects when they are all of one kind, else none.
+  propertyTargets() {
+    const items = [...this.selected].map((id) => this.items.get(id)).filter(Boolean);
+    return items.length && items.every((item) => item.type === items[0].type) ? items : [];
+  }
+
+  // Tells the property bar what is selected now (and so what to show).
+  notifyProperties() {
+    this.callbacks.onProperties?.(this.propertyTargets());
+  }
+
+  // Redraws a card after its style changed. A card being edited keeps its
+  // editor, so only its style is touched.
+  refreshCard(id) {
+    const card = this.elements.get(id);
+    const item = this.items.get(id);
+
+    if (this.editing?.id === id) {
+      applyCardStyle(card, item);
+    } else {
+      updateCardElement(card, item);
+    }
+  }
+
+  // Text that got bigger (or a different font) may no longer fit: notes and
+  // checklists grow to hold it, as when typing.
+  fitContent(id) {
+    const card = this.elements.get(id);
+    const editor = card.querySelector(".note-editor");
+
+    if (editor) {
+      this.growToFit(this.items.get(id), card, editor);
+    } else {
+      this.growToContent(id);
+    }
+  }
+
+  // A choice from the property bar, applied to every selected object: { kind:
+  // "fill" | "alpha" | "text" | "shape", set, prop, value } (see properties.js).
+  // One undo step; while a card is being edited it joins that edit's step.
+  applyProperty({ kind, set, prop, value }) {
+    const targets = this.propertyTargets();
+
+    if (!targets.length) {
+      return;
+    }
+
+    if (kind === "shape") {
+      this.setLineShape(value);
+      return;
+    }
+
+    const ids = targets.map((item) => item.id);
+    const editing = this.editing && ids.includes(this.editing.id);
+    const before = editing ? null : this.capture(ids);
+
+    for (const item of targets) {
+      if (kind === "fill") {
+        item.color = value;
+      } else if (kind === "alpha") {
+        setAlpha(item, value);
+      } else if (kind === "text") {
+        setTextValue(item, set, prop, value);
+      }
+
+      this.refreshCard(item.id);
+
+      if (kind === "text") {
+        this.fitContent(item.id);
+      }
+    }
+
+    if (before) {
+      this.commitChange(before);
+    } else {
+      this.emit(ids);
+    }
+
+    this.notifyProperties();
   }
 
   // Opens the card menu at a screen point, or by the first selected card.
@@ -1267,12 +1359,7 @@ export class BoardView {
 
     this.finishEditing();
     this.menuPoint = this.viewport.toWorld(this.viewport.localPoint({ clientX, clientY }));
-    this.menu.open(clientX, clientY, {
-      colors: new Set(items.map((item) => item.color)),
-      noteSizes: new Set(items.filter((item) => item.type === "note").map((item) => item.data.size)),
-      lineShapes: new Set(items.filter((item) => item.type === "connector").map((item) => item.data.shape ?? "straight")),
-      canPaste: Boolean(this.callbacks.canPaste?.())
-    });
+    this.menu.open(clientX, clientY, { canPaste: Boolean(this.callbacks.canPaste?.()) });
   }
 
   // Right-click or long-press on empty canvas: Paste.
@@ -1283,20 +1370,8 @@ export class BoardView {
     this.menu.open(clientX, clientY, { canvas: true, canPaste: Boolean(this.callbacks.canPaste?.()) });
   }
 
-  runMenuAction({ type, value }) {
-    if (type === "color") {
-      this.changeSelected((item) => {
-        item.color = value;
-      });
-    } else if (type === "size") {
-      this.changeSelected((item) => {
-        if (item.type === "note") {
-          item.data.size = value;
-        }
-      });
-    } else if (type === "lineShape") {
-      this.setLineShape(value);
-    } else if (type === "duplicate") {
+  runMenuAction({ type }) {
+    if (type === "duplicate") {
       this.duplicateSelected();
     } else if (type === "front") {
       this.restackSelected(true);
@@ -2069,7 +2144,8 @@ export class BoardView {
   }
 
   onWheel(event) {
-    if (!this.boardId) {
+    // Over the property bar the wheel scrolls the bar, not the board.
+    if (!this.boardId || (event.target instanceof Element && event.target.closest(".property-bar"))) {
       return;
     }
 
@@ -2092,7 +2168,14 @@ export class BoardView {
   }
 
   onKeyDown(event) {
-    if (!this.boardId || isTextField(event.target) || this.menu.element.contains(event.target)) {
+    // Keys used in the menu, the property bar or its colour grid are theirs
+    // (arrow keys must not nudge the cards, Delete must not delete them).
+    if (
+      !this.boardId
+      || isTextField(event.target)
+      || this.menu.element.contains(event.target)
+      || (event.target instanceof Element && event.target.closest(".property-bar, .color-grid"))
+    ) {
       return;
     }
 

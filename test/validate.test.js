@@ -71,7 +71,8 @@ describe("validateItem", () => {
   });
 
   it("rejects bad note data", () => {
-    rejects(note({}, { size: "xl" }), /Invalid note/);
+    rejects(note({}, { size: "huge" }), /Invalid note/);
+    assert.equal(validateItem(note({}, { size: "xl" })).data.size, "xl");
     rejects(note({}, { text: 5 }), /must be text/);
     rejects(note({ data: null }), /Invalid note/);
     rejects(note({ data: [] }), /Invalid note/);
