@@ -47,9 +47,15 @@ export const VALIGN_NAMES = { top: "Align to top", middle: "Align to middle", bo
 export const ALPHAS = [100, 75, 50, 25];
 
 // Each object type offers a fill (for the colour in item.color), an opacity,
-// and one entry per piece of text. `bold` is whether that text is bold by
-// default; `props` is what can be changed about it; `valign` is its default
-// vertical alignment where it has one.
+// one entry per piece of text, and some `extras` of its own (a border, a flip,
+// a line's thickness...). `bold` is whether that text is bold by default;
+// `props` is what can be changed about it (besides the usual ones, "strike"
+// for ticked checklist items and "address" for a link's address line);
+// `valign` is its default vertical alignment where it has one. An extra is
+// stored as data.style[key]; `kind` is "choice" (one of `options`), "color" or
+// "toggle"; `default` is what it is when nothing is stored (a function of the
+// item where that depends on the object); `group` and `row` say where the bar
+// puts it; `when` hides it while it would have no effect.
 export const OBJECT_STYLES = {
   note: {
     heading: "Fill",
@@ -68,7 +74,7 @@ export const OBJECT_STYLES = {
     alpha: "Fill opacity",
     sets: [
       { key: "title", label: "Title", bold: true, props: ["color", "font", "size", "bold", "italic"] },
-      { key: "items", label: "Items", bold: false, props: ["color", "font", "size", "bold", "italic"] }
+      { key: "items", label: "Items", bold: false, props: ["color", "font", "size", "bold", "italic", "strike"] }
     ]
   },
   image: {
@@ -76,6 +82,21 @@ export const OBJECT_STYLES = {
     alpha: "Opacity",
     sets: [
       { key: "caption", label: "Caption", bold: false, props: ["size", "align"] }
+    ],
+    extras: [
+      { key: "flipX", kind: "toggle", label: "Flip horizontally", icon: "flipX", default: false, group: "Image", row: "flip" },
+      { key: "flipY", kind: "toggle", label: "Flip vertically", icon: "flipY", default: false, group: "Image", row: "flip" },
+      { key: "border", kind: "choice", label: "Border", options: { none: "None", thin: "Thin", thick: "Thick" }, default: "none", group: "Frame" },
+      {
+        key: "borderColor",
+        kind: "color",
+        label: "Border colour",
+        palette: "ink",
+        default: null,
+        group: "Frame",
+        when: (item) => (item.data.style?.border ?? "none") !== "none"
+      },
+      { key: "corners", kind: "choice", label: "Corners", options: { square: "Square", rounded: "Rounded" }, default: "square", group: "Frame" }
     ]
   },
   link: {
@@ -84,7 +105,7 @@ export const OBJECT_STYLES = {
     palette: "tone",
     alpha: "Fill opacity",
     sets: [
-      { key: "text", label: "Text", bold: true, valign: "middle", props: ["color", "font", "size", "bold", "italic", "align", "valign"] }
+      { key: "text", label: "Text", bold: true, valign: "middle", props: ["color", "font", "size", "bold", "italic", "align", "valign", "address"] }
     ]
   },
   section: {
@@ -94,6 +115,17 @@ export const OBJECT_STYLES = {
     alpha: "Fill opacity",
     sets: [
       { key: "title", label: "Title", bold: true, props: ["color", "font", "size", "align"] }
+    ],
+    extras: [
+      {
+        key: "border",
+        kind: "choice",
+        label: "Border",
+        options: { dashed: "Dashed", solid: "Solid", none: "None" },
+        // A section with a colour has always had a solid border, a plain one a dashed border.
+        default: (item) => (item.color ? "solid" : "dashed"),
+        group: "Border"
+      }
     ]
   },
   folder: {
@@ -110,9 +142,24 @@ export const OBJECT_STYLES = {
     palette: "ink",
     alpha: "Opacity",
     shape: true,
-    sets: []
+    sets: [],
+    extras: [
+      { key: "thickness", kind: "choice", label: "Thickness", options: { thin: "Thin", medium: "Medium", thick: "Thick" }, default: "medium", group: "Stroke" },
+      { key: "dash", kind: "choice", label: "Style", options: { solid: "Solid", dashed: "Dashed", dotted: "Dotted" }, default: "solid", group: "Stroke" },
+      {
+        key: "arrow",
+        kind: "choice",
+        label: "Arrowhead",
+        options: { none: "None", end: "End", start: "Start", both: "Both" },
+        icons: true,
+        default: "end",
+        group: "Stroke"
+      }
+    ]
   }
 };
+
+export const extrasOf = (type) => OBJECT_STYLES[type]?.extras ?? [];
 
 const ALL_SIZES = ["s", "m", "l", "xl"];
 
@@ -144,6 +191,34 @@ export function alphaOf(item) {
   return item.data.style?.alpha ?? 100;
 }
 
+function extraOf(type, key) {
+  return extrasOf(type).find((extra) => extra.key === key);
+}
+
+// What an extra is when nothing is stored.
+export function defaultExtra(item, key) {
+  const { default: fallback } = extraOf(item.type, key);
+  return typeof fallback === "function" ? fallback(item) : fallback;
+}
+
+export function extraValue(item, key) {
+  return item.data.style?.[key] ?? defaultExtra(item, key);
+}
+
+// Sets an extra (storing it only when it differs from the default).
+export function setExtra(item, key, value) {
+  if (value === defaultExtra(item, key)) {
+    if (item.data.style) {
+      delete item.data.style[key];
+      prune(item, key);
+    }
+
+    return;
+  }
+
+  item.data.style = { ...item.data.style, [key]: value };
+}
+
 // The default of one text property: what it is when nothing is stored.
 // A note's title follows the note's own size until it is set separately
 // (notes made before titles had their own size are sized as a whole).
@@ -160,7 +235,10 @@ export function defaultText(item, key, prop) {
     case "bold":
       return set.bold;
     case "italic":
+    case "strike":
       return false;
+    case "address":
+      return true;
     case "align":
       return "left";
     default:
@@ -281,12 +359,81 @@ export function styleVars(item) {
       vars[`${name}-style`] = "italic";
     }
 
+    // Ticked checklist items struck through; a link's address line hidden.
+    if (set.props.includes("strike") && value("strike")) {
+      vars[`${name}-strike`] = "line-through";
+    }
+
+    if (set.props.includes("address") && !value("address")) {
+      vars[`${name}-address`] = "none";
+    }
+
     if (set.props.includes("align") && value("align") !== "left") {
       vars[`${name}-align`] = value("align");
     }
 
     if (set.props.includes("valign") && value("valign") !== set.valign) {
       vars[`${name}-valign`] = FLEX[value("valign")];
+    }
+  }
+
+  Object.assign(vars, extraVars(item));
+  return vars;
+}
+
+// A line's thickness, in pixels, and its dashes: a dash and a gap, in
+// multiples of the thickness (a dot is a dash of nothing with round ends).
+const STROKE_PX = { thin: "1.5px", medium: "2px", thick: "3.5px" };
+const DASHES = { dashed: ["4", "3"], dotted: ["0.01", "2.2"] };
+const BORDER_PX = { thin: "2px", thick: "5px" };
+const CORNER_PX = "16px";
+
+// The custom properties for the extras (borders, corners, flips, strokes).
+function extraVars(item) {
+  const vars = {};
+  const changed = (key) => item.data.style?.[key] !== undefined && extraValue(item, key) !== defaultExtra(item, key);
+
+  if (item.type === "image") {
+    const border = extraValue(item, "border");
+
+    if (border !== "none") {
+      vars["--border-width"] = BORDER_PX[border];
+      vars["--border-color"] = extraValue(item, "borderColor") ? `var(--ink-${extraValue(item, "borderColor")})` : "var(--text)";
+    }
+
+    if (extraValue(item, "corners") === "rounded") {
+      vars["--corner"] = CORNER_PX;
+    }
+
+    if (extraValue(item, "flipX")) {
+      vars["--flip-x"] = "-1";
+    }
+
+    if (extraValue(item, "flipY")) {
+      vars["--flip-y"] = "-1";
+    }
+  } else if (item.type === "section" && changed("border")) {
+    const border = extraValue(item, "border");
+
+    if (border === "none") {
+      vars["--border-color"] = "transparent";
+    } else {
+      vars["--border-style"] = border;
+    }
+  } else if (item.type === "connector") {
+    if (changed("thickness")) {
+      vars["--stroke"] = STROKE_PX[extraValue(item, "thickness")];
+    }
+
+    const dash = DASHES[extraValue(item, "dash")];
+
+    if (dash) {
+      vars["--dash-on"] = dash[0];
+      vars["--dash-off"] = dash[1];
+
+      if (extraValue(item, "dash") === "dotted") {
+        vars["--cap"] = "round";
+      }
     }
   }
 
@@ -306,7 +453,7 @@ function validProp(set, prop, value) {
     return false;
   }
 
-  if (prop === "bold" || prop === "italic") {
+  if (prop === "bold" || prop === "italic" || prop === "strike" || prop === "address") {
     return typeof value === "boolean";
   }
 
@@ -341,6 +488,17 @@ export function sanitizeStyle(type, style) {
 
     if (Object.keys(text).length) {
       clean[set.key] = text;
+    }
+  }
+
+  for (const extra of extrasOf(type)) {
+    const value = style[extra.key];
+    const valid = extra.kind === "toggle" ? typeof value === "boolean"
+      : extra.kind === "color" ? COLOR_KEYS.includes(value)
+        : Object.keys(extra.options).includes(value);
+
+    if (value !== undefined && valid) {
+      clean[extra.key] = value;
     }
   }
 

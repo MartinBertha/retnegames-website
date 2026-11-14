@@ -35,7 +35,7 @@ import {
 import { startEditor } from "./editors.js";
 import { History } from "./history.js";
 import { CardMenu } from "./menu.js";
-import { setAlpha, setTextValue } from "./styles.js";
+import { setAlpha, setExtra, setTextValue } from "./styles.js";
 import { GRID, Viewport } from "./viewport.js";
 
 const COORDINATE_LIMIT = 1_000_000;
@@ -1300,7 +1300,8 @@ export class BoardView {
   }
 
   // A choice from the property bar, applied to every selected object: { kind:
-  // "fill" | "alpha" | "text" | "shape", set, prop, value } (see properties.js).
+  // "fill" | "alpha" | "text" | "extra" | "shape", set, prop, value } (see
+  // properties.js).
   // One undo step; while a card is being edited it joins that edit's step.
   applyProperty({ kind, set, prop, value }) {
     const targets = this.propertyTargets();
@@ -1325,6 +1326,8 @@ export class BoardView {
         setAlpha(item, value);
       } else if (kind === "text") {
         setTextValue(item, set, prop, value);
+      } else if (kind === "extra") {
+        setExtra(item, prop, value);
       }
 
       this.refreshCard(item.id);

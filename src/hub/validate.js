@@ -26,7 +26,8 @@ export const PALETTE = new Set([
 
 // What each object type lets you style (public/hub/styles.js has the same
 // table, and a test keeps them equal): its pieces of text, and for each the
-// properties that can be set. `sizes` narrows the text sizes (default s to xl).
+// properties that can be set (`sizes` narrows the text sizes, default s to
+// xl); and its `extras`, each "bool", "color" or a list of allowed values.
 export const STYLE_RULES = {
   note: {
     alpha: true,
@@ -39,17 +40,45 @@ export const STYLE_RULES = {
     alpha: true,
     sets: {
       title: { props: ["color", "font", "size", "bold", "italic"] },
-      items: { props: ["color", "font", "size", "bold", "italic"] }
+      items: { props: ["color", "font", "size", "bold", "italic", "strike"] }
     }
   },
-  image: { alpha: true, sets: { caption: { props: ["size", "align"] } } },
-  link: { alpha: true, sets: { text: { props: ["color", "font", "size", "bold", "italic", "align", "valign"] } } },
-  section: { alpha: true, sets: { title: { props: ["color", "font", "size", "align"] } } },
+  image: {
+    alpha: true,
+    sets: { caption: { props: ["size", "align"] } },
+    extras: {
+      flipX: "bool",
+      flipY: "bool",
+      border: ["none", "thin", "thick"],
+      borderColor: "color",
+      corners: ["square", "rounded"]
+    }
+  },
+  link: {
+    alpha: true,
+    sets: { text: { props: ["color", "font", "size", "bold", "italic", "align", "valign", "address"] } }
+  },
+  section: {
+    alpha: true,
+    sets: { title: { props: ["color", "font", "size", "align"] } },
+    extras: { border: ["dashed", "solid", "none"] }
+  },
   folder: { alpha: false, sets: { label: { props: ["color", "size", "bold"], sizes: ["s", "m", "l"] } } },
-  connector: { alpha: true, sets: {} }
+  connector: {
+    alpha: true,
+    sets: {},
+    extras: {
+      thickness: ["thin", "medium", "thick"],
+      dash: ["solid", "dashed", "dotted"],
+      arrow: ["none", "end", "start", "both"]
+    }
+  }
 };
 
 const STYLE_ALPHAS = new Set([100, 75, 50, 25]);
+// On/off properties of a piece of text: bold, italic, struck-through ticked
+// checklist items, and a link's address line shown.
+const BOOLEAN_PROPS = new Set(["bold", "italic", "strike", "address"]);
 const STYLE_VALUES = {
   font: new Set(["sans", "serif", "mono"]),
   size: ["s", "m", "l", "xl"],
@@ -214,7 +243,7 @@ function cleanTextStyle(style, rules) {
     }
 
     const allowed = prop === "color" ? PALETTE.has(value)
-      : prop === "bold" || prop === "italic" ? typeof value === "boolean"
+      : BOOLEAN_PROPS.has(prop) ? typeof value === "boolean"
         : prop === "size" ? (rules.sizes ?? STYLE_VALUES.size).includes(value)
           : STYLE_VALUES[prop].has(value);
 
@@ -260,6 +289,24 @@ function cleanStyle(type, style) {
         clean[key] = text;
       }
     }
+  }
+
+  for (const [key, allowed] of Object.entries(rules.extras ?? {})) {
+    const value = style[key];
+
+    if (value === undefined) {
+      continue;
+    }
+
+    const valid = allowed === "bool" ? typeof value === "boolean"
+      : allowed === "color" ? PALETTE.has(value)
+        : allowed.includes(value);
+
+    if (!valid) {
+      invalid("Invalid style.");
+    }
+
+    clean[key] = value;
   }
 
   return Object.keys(clean).length ? clean : undefined;

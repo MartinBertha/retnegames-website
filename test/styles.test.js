@@ -10,8 +10,12 @@ import {
   FONT_NAMES,
   OBJECT_STYLES,
   alphaOf,
+  defaultExtra,
+  extraValue,
+  extrasOf,
   sanitizeStyle,
   setAlpha,
+  setExtra,
   setTextValue,
   sizesOf,
   styleVars,
@@ -254,5 +258,147 @@ describe("the server", () => {
     assert.equal(validateItem(line).data.style.alpha, 25);
     assert.equal(validateItem(line).color, "indigo");
     assert.equal(validateItem({ ...note(), type: "image", data: { fileId: ID, style: { alpha: 50, caption: { size: "l", align: "center" } } } }).data.style.caption.align, "center");
+  });
+});
+
+describe("extras: borders, corners, flips and strokes", () => {
+  it("match the server's rules", () => {
+    for (const [type, rules] of Object.entries(STYLE_RULES)) {
+      const extras = extrasOf(type);
+
+      assert.deepEqual(extras.map((extra) => extra.key).sort(), Object.keys(rules.extras ?? {}).sort(), `${type} extras`);
+
+      for (const extra of extras) {
+        const allowed = rules.extras[extra.key];
+
+        if (extra.kind === "choice") {
+          assert.deepEqual(Object.keys(extra.options), allowed, `${type}.${extra.key}`);
+          assert.ok(Object.keys(extra.options).includes(defaultExtra(item(type, {}), extra.key)), `${type}.${extra.key} default`);
+        } else {
+          assert.equal(allowed, extra.kind === "color" ? "color" : "bool", `${type}.${extra.key}`);
+        }
+      }
+    }
+  });
+
+  it("store only what differs from the default", () => {
+    const image = item("image", {});
+
+    assert.equal(extraValue(image, "border"), "none");
+    setExtra(image, "border", "thick");
+    setExtra(image, "flipX", true);
+    assert.deepEqual(image.data.style, { border: "thick", flipX: true });
+
+    setExtra(image, "border", "none");
+    setExtra(image, "flipX", false);
+    assert.equal(image.data.style, undefined);
+  });
+
+  it("give a section the border it has always had: dashed, or solid with a colour", () => {
+    const plain = item("section", {});
+    const coloured = { ...item("section", {}), color: "blue" };
+
+    assert.equal(extraValue(plain, "border"), "dashed");
+    assert.equal(extraValue(coloured, "border"), "solid");
+    assert.deepEqual(styleVars(plain), {});
+    assert.deepEqual(styleVars(coloured), {});
+
+    setExtra(plain, "border", "solid");
+    setExtra(coloured, "border", "none");
+    assert.deepEqual(styleVars(plain), { "--border-style": "solid" });
+    assert.deepEqual(styleVars(coloured), { "--border-color": "transparent" });
+  });
+
+  it("draw an image's border, corners and flips", () => {
+    const image = item("image", {});
+
+    setExtra(image, "border", "thin");
+    assert.deepEqual(styleVars(image), { "--border-width": "2px", "--border-color": "var(--text)" });
+
+    setExtra(image, "borderColor", "red");
+    setExtra(image, "border", "thick");
+    setExtra(image, "corners", "rounded");
+    setExtra(image, "flipX", true);
+    setExtra(image, "flipY", true);
+    assert.deepEqual(styleVars(image), {
+      "--border-width": "5px",
+      "--border-color": "var(--ink-red)",
+      "--corner": "16px",
+      "--flip-x": "-1",
+      "--flip-y": "-1"
+    });
+  });
+
+  it("draw a line's thickness and dashes, and leave the default alone", () => {
+    const line = item("connector", { start: { x: 0, y: 0 }, end: { x: 5, y: 5 } });
+
+    assert.deepEqual(styleVars(line), {});
+    setExtra(line, "thickness", "thick");
+    setExtra(line, "dash", "dashed");
+    assert.deepEqual(styleVars(line), { "--stroke": "3.5px", "--dash-on": "4", "--dash-off": "3" });
+
+    setExtra(line, "thickness", "thin");
+    setExtra(line, "dash", "dotted");
+    assert.deepEqual(styleVars(line), { "--stroke": "1.5px", "--dash-on": "0.01", "--dash-off": "2.2", "--cap": "round" });
+
+    // The arrowhead is drawn from data.style.arrow when the line is rendered.
+    setExtra(line, "arrow", "both");
+    assert.equal(line.data.style.arrow, "both");
+    setExtra(line, "arrow", "end");
+    assert.equal(line.data.style.arrow, undefined);
+  });
+
+  it("strike through ticked items, and hide a link's address", () => {
+    const list = item("checklist", {});
+    setTextValue(list, "items", "strike", true);
+    assert.deepEqual(styleVars(list), { "--items-strike": "line-through" });
+    setTextValue(list, "items", "strike", false);
+    assert.equal(list.data.style, undefined);
+
+    const link = item("link", {});
+    assert.equal(textValue(link, "text", "address"), true);
+    setTextValue(link, "text", "address", false);
+    assert.deepEqual(styleVars(link), { "--text-address": "none" });
+    setTextValue(link, "text", "address", true);
+    assert.equal(link.data.style, undefined);
+  });
+
+  it("are sanitized like the rest of a style", () => {
+    assert.deepEqual(
+      sanitizeStyle("image", { border: "thick", borderColor: "mauve", corners: "rounded", flipX: "yes", flipY: true, arrow: "end" }),
+      { border: "thick", corners: "rounded", flipY: true }
+    );
+    assert.deepEqual(sanitizeStyle("connector", { dash: "dotted", thickness: "huge", arrow: "both" }), { dash: "dotted", arrow: "both" });
+    assert.deepEqual(sanitizeStyle("checklist", { items: { strike: true, address: true } }), { items: { strike: true } });
+    assert.equal(sanitizeStyle("note", { border: "thick" }), undefined);
+  });
+
+  it("are kept by the server, which drops what an object doesn't have and rejects bad values", () => {
+    const image = (style) => ({ ...note(), type: "image", data: { fileId: ID, style } });
+    const saved = validateItem(image({ border: "thick", borderColor: "blue", corners: "rounded", flipX: true, dash: "dashed" }));
+
+    assert.deepEqual(saved.data.style, { border: "thick", borderColor: "blue", corners: "rounded", flipX: true });
+    rejects(image({ border: "huge" }), /Invalid style/);
+    rejects(image({ borderColor: "mauve" }), /Invalid style/);
+    rejects(image({ flipX: "yes" }), /Invalid style/);
+
+    const line = (style) => ({
+      ...note(),
+      type: "connector",
+      w: 120,
+      h: 0,
+      data: { start: { x: 0, y: 0 }, end: { x: 120, y: 0 }, style }
+    });
+
+    assert.deepEqual(validateItem(line({ thickness: "thick", dash: "dotted", arrow: "none" })).data.style, { thickness: "thick", dash: "dotted", arrow: "none" });
+    rejects(line({ arrow: "middle" }), /Invalid style/);
+
+    const section = (style) => ({ ...note(), type: "section", data: { title: "S", style } });
+    assert.equal(validateItem(section({ border: "none" })).data.style.border, "none");
+    rejects(section({ border: "double" }), /Invalid style/);
+
+    const list = (style) => ({ ...note(), type: "checklist", data: { title: "", entries: [], style } });
+    assert.equal(validateItem(list({ items: { strike: true } })).data.style.items.strike, true);
+    rejects(list({ items: { strike: "yes" } }), /Invalid style/);
   });
 });

@@ -919,6 +919,7 @@ body.is-placing * {
 
 .entry.is-done .entry-text {
   color: var(--muted);
+  text-decoration: var(--items-strike, none);
 }
 
 .entry.is-dragging {
@@ -983,6 +984,8 @@ body.is-placing * {
 .card-image {
   display: flex;
   flex-direction: column;
+  border: var(--border-width, 1px) solid var(--border-color, var(--card-border));
+  border-radius: var(--corner, var(--radius));
 }
 
 .image-content {
@@ -992,6 +995,7 @@ body.is-placing * {
   min-height: 0;
   object-fit: contain;
   opacity: var(--alpha, 1);
+  transform: scale(var(--flip-x, 1), var(--flip-y, 1));
   -webkit-user-drag: none;
 }
 
@@ -1049,6 +1053,7 @@ body.is-placing * {
 
 /* The address line is a little smaller than the title, and follows its style. */
 .link-host {
+  display: var(--text-address, block);
   overflow: hidden;
   color: var(--text-color, var(--muted));
   font-family: var(--text-font, inherit);
@@ -1056,6 +1061,11 @@ body.is-placing * {
   font-style: var(--text-style, normal);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Hidden while the link is edited (the display above would otherwise win). */
+.link-host[hidden] {
+  display: none;
 }
 
 .link-editor {
@@ -1090,8 +1100,10 @@ body.is-placing * {
 /* Sections: translucent areas behind the cards. Only the title bar and the
    resize handle take the pointer, so the area itself behaves like canvas. */
 
+/* --border-style and --border-color come from the section's border choice
+   (dashed, solid or none, which is transparent). */
 .card-section {
-  border: 1px dashed var(--line-strong);
+  border: 1px var(--border-style, dashed) var(--border-color, var(--line-strong));
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--section-bg) calc(var(--alpha, 1) * 100%), transparent);
   box-shadow: none;
@@ -1099,8 +1111,8 @@ body.is-placing * {
 }
 
 .card-section[data-color] {
-  border-style: solid;
-  border-color: color-mix(in srgb, var(--card-bg), var(--mix-contrast) 14%);
+  border-style: var(--border-style, solid);
+  border-color: var(--border-color, color-mix(in srgb, var(--card-bg), var(--mix-contrast) 14%));
   background: color-mix(in srgb, var(--card-bg) calc(60% * var(--alpha, 1)), transparent);
 }
 
@@ -1184,10 +1196,16 @@ body.is-placing * {
   overflow: visible;
 }
 
+/* --stroke is the thickness; a dash and a gap are --dash-on and --dash-off
+   times the thickness (both 0: solid), round ends for dots (--cap). Never
+   thinner than 1.5px on screen, at any zoom. */
 .connector-line {
+  --w: max(var(--stroke, 2px), calc(1.5px / var(--zoom, 1)));
   fill: none;
   stroke: currentColor;
-  stroke-width: max(2px, calc(1.5px / var(--zoom, 1)));
+  stroke-width: var(--w);
+  stroke-dasharray: calc(var(--w) * var(--dash-on, 0)) calc(var(--w) * var(--dash-off, 0));
+  stroke-linecap: var(--cap, butt);
   opacity: var(--alpha, 1);
 }
 
@@ -1484,6 +1502,7 @@ body.is-placing * {
 }
 
 .prop-bold { font-weight: 800; }
+.prop-strike { text-decoration: line-through; }
 .prop-italic { font-style: italic; }
 .prop-font-sans { font-family: var(--font-sans); }
 .prop-font-serif { font-family: var(--font-serif); }

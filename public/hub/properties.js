@@ -17,6 +17,8 @@ import {
   SIZE_NAMES,
   VALIGN_NAMES,
   alphaOf,
+  extraValue,
+  extrasOf,
   sizesOf,
   textValue
 } from "./styles.js";
@@ -33,7 +35,13 @@ const ICONS = {
   right: "M4 6h16M10 10h10M4 14h16M10 18h10",
   top: "M4 4h16M12 20V9M8 13l4-4 4 4",
   middle: "M4 12h16M12 3v6M9 6l3 3 3-3M12 21v-6M9 18l3-3 3 3",
-  bottom: "M4 20h16M12 4v11M8 11l4 4 4-4"
+  bottom: "M4 20h16M12 4v11M8 11l4 4 4-4",
+  flipX: "M12 3v18M8 7l-5 5 5 5zM16 7l5 5-5 5z",
+  flipY: "M3 12h18M7 8l5-5 5 5zM7 16l5 5 5-5z",
+  "arrow-none": "M4 12h16",
+  "arrow-end": "M4 12h16M15 7l5 5-5 5",
+  "arrow-start": "M20 12H4M9 7l-5 5 5 5",
+  "arrow-both": "M4 12h16M15 7l5 5-5 5M9 7l-5 5 5 5"
 };
 
 function el(tag, className, text) {
@@ -69,7 +77,9 @@ function shared(items, read) {
 }
 
 // A button that is on when the value is, one of a group (a choice of values).
-function choice({ label, options, read, pick }) {
+// showLabel puts the label in words beside the buttons (for choices whose
+// buttons don't say what they are for, like "100% 75% 50% 25%").
+function choice({ label, options, read, pick, showLabel = false }) {
   const group = el("div", "prop-seg");
   group.setAttribute("role", "radiogroup");
   group.setAttribute("aria-label", label);
@@ -97,6 +107,7 @@ function choice({ label, options, read, pick }) {
 
   return {
     element: group,
+    label: showLabel ? label : null,
     sync(items) {
       const value = shared(items, read);
 
@@ -107,9 +118,13 @@ function choice({ label, options, read, pick }) {
   };
 }
 
-// An on/off button (bold, italic).
-function toggle({ label, text, className, read, pick }) {
+// An on/off button (bold, italic...): its text, or an icon in `content`.
+function toggle({ label, text, content, className = "", read, pick }) {
   const button = el("button", `prop-button prop-toggle ${className}`, text);
+
+  if (content) {
+    button.append(content);
+  }
 
   button.type = "button";
   button.title = label;
@@ -276,6 +291,12 @@ export class PropertyBar {
 
     for (const control of this.controls) {
       control.sync(items);
+
+      // A control can be hidden while it would have no effect (a border colour
+      // with no border).
+      if (control.when) {
+        control.line.hidden = !items.some(control.when);
+      }
     }
   }
 
@@ -355,9 +376,15 @@ export class PropertyBar {
 
     const style = [];
 
-    for (const [prop, text, label, className] of [["bold", "B", "Bold", "prop-bold"], ["italic", "I", "Italic", "prop-italic"]]) {
+    const toggles = [
+      ["bold", "B", `${set.label} bold`, "prop-bold"],
+      ["italic", "I", `${set.label} italic`, "prop-italic"],
+      ["strike", "S", "Strike through ticked items", "prop-strike"]
+    ];
+
+    for (const [prop, text, label, className] of toggles) {
       if (has(prop)) {
-        style.push(toggle({ label: `${set.label} ${label.toLowerCase()}`, text, className, read: read(prop), pick: send(prop) }));
+        style.push(toggle({ label, text, className, read: read(prop), pick: send(prop) }));
       }
     }
 
@@ -383,7 +410,40 @@ export class PropertyBar {
       })]);
     }
 
+    if (has("address")) {
+      rows.push([toggle({ label: "Show address line", text: "Address line", read: read("address"), pick: send("address") })]);
+    }
+
     return rows;
+  }
+
+  // The control for one of an object's own extras (a border, a flip, a
+  // line's thickness...), sending { kind: "extra", prop, value }.
+  extra(extra) {
+    const read = (item) => extraValue(item, extra.key);
+    const pick = (value) => this.onChange({ kind: "extra", prop: extra.key, value });
+    let control;
+
+    if (extra.kind === "color") {
+      control = this.colour({ label: extra.label, palette: extra.palette, read, pick });
+    } else if (extra.kind === "toggle") {
+      control = toggle({ label: extra.label, content: icon(extra.icon), read, pick });
+    } else {
+      control = choice({
+        label: extra.label,
+        showLabel: true,
+        options: Object.entries(extra.options).map(([value, name]) => ({
+          value,
+          name,
+          content: extra.icons ? icon(`${extra.key}-${value}`) : name
+        })),
+        read,
+        pick
+      });
+    }
+
+    control.when = extra.when;
+    return control;
   }
 
   build(type) {
@@ -406,6 +466,7 @@ export class PropertyBar {
     if (spec.alpha) {
       top.push([choice({
         label: spec.alpha,
+        showLabel: true,
         options: ALPHAS.map((value) => ({ value, name: `${value}%`, content: `${value}%` })),
         read: alphaOf,
         pick: (value) => this.onChange({ kind: "alpha", value })
@@ -424,13 +485,38 @@ export class PropertyBar {
       })]);
     }
 
-    groups.push({ title: spec.heading, rows: top, opacityLabel: spec.alpha });
+    groups.push({ title: spec.heading, rows: top });
+
+    // The object's own extras: in the top group when they name it, otherwise in
+    // groups of their own after it. Extras with the same `row` share a line.
+    const placed = new Map();
+
+    for (const extra of extrasOf(type)) {
+      const rowKey = `${extra.group}/${extra.row ?? extra.key}`;
+      let row = placed.get(rowKey);
+
+      if (!row) {
+        row = [];
+        placed.set(rowKey, row);
+
+        let group = groups.find((candidate) => candidate.title === extra.group);
+
+        if (!group) {
+          group = { title: extra.group, rows: [] };
+          groups.push(group);
+        }
+
+        group.rows.push(row);
+      }
+
+      row.push(this.extra(extra));
+    }
 
     for (const set of spec.sets) {
       groups.push({ title: set.label, rows: this.textRows(set) });
     }
 
-    const nodes = groups.map(({ title, rows, opacityLabel }) => {
+    const nodes = groups.map(({ title, rows }) => {
       const group = el("section", "prop-group");
       group.setAttribute("aria-label", title);
       group.append(el("h2", "prop-heading", title));
@@ -438,13 +524,14 @@ export class PropertyBar {
       for (const row of rows) {
         const line = el("div", "prop-row");
 
-        // "100% 75% 50% 25%" needs a word to say what it is.
-        if (opacityLabel && row[0].element.getAttribute("aria-label") === opacityLabel) {
-          line.append(el("span", "prop-label", opacityLabel));
+        // A choice like "100% 75% 50% 25%" needs a word to say what it is.
+        if (row[0].label) {
+          line.append(el("span", "prop-label", row[0].label));
         }
 
         for (const control of row) {
           line.append(control.element);
+          control.line = line;
           this.controls.push(control);
         }
 

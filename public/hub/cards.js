@@ -143,7 +143,8 @@ function connectorParts() {
   marker.setAttribute("refY", "5");
   marker.setAttribute("markerWidth", "6");
   marker.setAttribute("markerHeight", "6");
-  marker.setAttribute("orient", "auto");
+  // One marker for either end: at the start it points the other way.
+  marker.setAttribute("orient", "auto-start-reverse");
 
   const head = svgElement("path", "connector-arrowhead");
   head.setAttribute("d", "M0 0L10 5L0 10z");
@@ -390,9 +391,16 @@ const RENDERERS = {
 
     card.querySelector("marker").id = arrow;
 
+    // The arrowhead is on the end unless the style says otherwise (none, start or both).
+    const heads = item.data.style?.arrow ?? "end";
+    const head = `url(#${arrow})`;
+
     for (const shape of card.querySelectorAll(".connector-halo, .connector-line, .connector-hit")) {
+      const line = shape.classList.contains("connector-line");
+
       shape.setAttribute("d", path);
-      shape.setAttribute("marker-end", shape.classList.contains("connector-line") ? `url(#${arrow})` : "none");
+      shape.setAttribute("marker-end", line && (heads === "end" || heads === "both") ? head : "none");
+      shape.setAttribute("marker-start", line && (heads === "start" || heads === "both") ? head : "none");
     }
 
     for (const handle of card.querySelectorAll(".connector-handle")) {
