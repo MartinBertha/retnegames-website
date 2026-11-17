@@ -11,9 +11,11 @@ import {
   json,
   readJson
 } from "./http.js";
-import { getFile, uploadFile } from "./files.js";
+import { createBackup, getBackup, listBackups, restoreBackup } from "./backups.js";
+import { getFile, missingFiles, uploadFile } from "./files.js";
 import { boardsToDelete, boardsToRestore, hasLiveLink, loadGraph, reachable } from "./folders.js";
 import { exportAll, importExport } from "./transfer.js";
+import { listTrash } from "./trash.js";
 import { cleanName, isPlainObject, isUuid, validateItem } from "./validate.js";
 
 const ROOT_BOARD_NAME = "Home";
@@ -333,6 +335,7 @@ function parseOps(body) {
 
   const upserts = new Map();
   const deletes = new Set();
+  const bases = new Map();
 
   for (const op of body.ops) {
     let id;
@@ -343,6 +346,15 @@ function parseOps(body) {
 
       if (upserts.has(id) || deletes.has(id)) {
         throw new HttpError(400, "The same card appears twice.");
+      }
+
+      // base: the updatedAt of the stored version this change was made from.
+      if (op.base != null) {
+        if (!Number.isSafeInteger(op.base) || op.base < 0) {
+          throw new HttpError(400, "Invalid change.");
+        }
+
+        bases.set(id, op.base);
       }
 
       upserts.set(id, item);
@@ -359,16 +371,24 @@ function parseOps(body) {
     }
   }
 
-  return { upserts, deletes };
+  return { upserts, deletes, bases };
 }
 
-// POST /boards/:id/changes { ops: [{ op: "upsert", item }, { op: "delete", id }] }
-// One D1 batch (a transaction). Per-card last write wins; bumps the board's rev.
+// POST /boards/:id/changes { ops: [{ op: "upsert", item, base? }, { op: "delete", id }] }
+// One D1 batch (a transaction). Bumps the board's rev.
+// Conflicts: an upsert with a `base` (the updatedAt of the stored version it
+// was made from) is only applied while that is still the stored version. If
+// the card has changed since (on another device), it is skipped and returned
+// in `conflicts` with what is stored now, for the client to merge and send
+// again. An upsert without a base, and every delete, is last write wins
+// (deleted cards can be restored from the trash).
 // Folder cards keep their child board in step: created, renamed, deleted and
 // restored together with the card.
+// Answers { rev, updatedAt, conflicts: [{ item, deleted }] }; updatedAt is the
+// time stamped on every card this request saved or deleted.
 async function applyChanges({ request, env, params }) {
   const boardId = boardIdParam(params[0]);
-  const { upserts, deletes } = parseOps(await readJson(request, MAX_CHANGES_BODY_BYTES));
+  const { upserts, deletes, bases } = parseOps(await readJson(request, MAX_CHANGES_BODY_BYTES));
 
   const ids = JSON.stringify([...upserts.keys(), ...deletes]);
   const fileIds = [...new Set(
@@ -377,10 +397,10 @@ async function applyChanges({ request, env, params }) {
 
   const [boardResult, existingResult, countResult, fileResult] = await env.DB.batch([
     env.DB.prepare(
-      "SELECT id FROM boards WHERE id = ?1 AND deleted_at IS NULL"
+      "SELECT id, rev FROM boards WHERE id = ?1 AND deleted_at IS NULL"
     ).bind(boardId),
     env.DB.prepare(
-      `SELECT id, board_id, type, data, deleted_at
+      `SELECT id, board_id, type, x, y, w, h, z, color, data, updated_at, deleted_at
        FROM items WHERE id IN (SELECT value FROM json_each(?1))`
     ).bind(ids),
     env.DB.prepare(
@@ -401,6 +421,7 @@ async function applyChanges({ request, env, params }) {
 
   const existing = new Map(existingResult.results.map((row) => [row.id, row]));
   let liveCount = countResult.results[0].count;
+  const conflicts = [];
 
   for (const item of upserts.values()) {
     const row = existing.get(item.id);
@@ -421,6 +442,13 @@ async function applyChanges({ request, env, params }) {
       throw new HttpError(400, "A folder's board can't change.");
     }
 
+    // Changed since the version this edit was made from: not applied.
+    if (row && bases.has(item.id) && row.updated_at !== bases.get(item.id)) {
+      conflicts.push({ item: toItem(row), deleted: row.deleted_at !== null });
+      upserts.delete(item.id);
+      continue;
+    }
+
     if (!row || row.deleted_at !== null) {
       liveCount++;
     }
@@ -439,6 +467,11 @@ async function applyChanges({ request, env, params }) {
   }
 
   const now = Date.now();
+
+  // Only conflicts (or deletes of cards already gone): nothing to save.
+  if (!upserts.size && !deletions.length) {
+    return json({ rev: boardResult.results[0].rev, updatedAt: now, conflicts });
+  }
   const statements = await folderStatements(env, {
     boardId,
     upserts,
@@ -485,7 +518,7 @@ async function applyChanges({ request, env, params }) {
 
   const results = await env.DB.batch(statements);
 
-  return json({ rev: results[results.length - 1].results[0].rev });
+  return json({ rev: results[results.length - 1].results[0].rev, updatedAt: now, conflicts });
 }
 
 // Renaming a board renames every folder card that opens it, wherever it is,
@@ -642,9 +675,14 @@ const ROUTES = [
   { pattern: /^\/boards\/([^/]+)\/rev$/, methods: { GET: getBoardRev } },
   { pattern: /^\/boards\/([^/]+)\/changes$/, methods: { POST: applyChanges } },
   { pattern: /^\/files$/, methods: { POST: uploadFile } },
+  { pattern: /^\/files\/missing$/, methods: { POST: missingFiles } },
   { pattern: /^\/files\/([^/]+)$/, methods: { GET: getFile } },
   { pattern: /^\/export$/, methods: { GET: exportAll } },
-  { pattern: /^\/import$/, methods: { POST: importExport } }
+  { pattern: /^\/import$/, methods: { POST: importExport } },
+  { pattern: /^\/trash$/, methods: { GET: listTrash } },
+  { pattern: /^\/backups$/, methods: { GET: listBackups, POST: createBackup } },
+  { pattern: /^\/backups\/([^/]+)$/, methods: { GET: getBackup } },
+  { pattern: /^\/backups\/([^/]+)\/restore$/, methods: { POST: restoreBackup } }
 ];
 
 export async function handleApi(request, env, url) {

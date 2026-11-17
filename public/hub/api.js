@@ -65,8 +65,15 @@ export const api = {
   deleteBoard: (id) => request("DELETE", boardPath(id)),
   saveChanges: (id, ops, options) => request("POST", `${boardPath(id)}/changes`, { ops }, options),
   uploadFile: (blob) => request("POST", "/files", blob),
+  missingFiles: (ids) => request("POST", "/files/missing", { ids }),
+  downloadFile: async (fileId) => (await request("GET", `/files/${encodeURIComponent(fileId)}`, undefined, { raw: true })).blob(),
   exportAll: () => request("GET", "/export", undefined, { raw: true }),
-  importExport: (data) => request("POST", "/import", data)
+  importExport: (data) => request("POST", "/import", data),
+  listTrash: () => request("GET", "/trash"),
+  listBackups: () => request("GET", "/backups"),
+  backUpNow: () => request("POST", "/backups"),
+  restoreBackup: (name) => request("POST", `/backups/${encodeURIComponent(name)}/restore`)
 };
 
 export const fileUrl = (fileId) => `/hub/api/files/${encodeURIComponent(fileId)}`;
+export const backupUrl = (name) => `/hub/api/backups/${encodeURIComponent(name)}`;

@@ -391,6 +391,44 @@ export class BoardView {
     this.callbacks.onItemsChange?.(this.items.size);
   }
 
+  get editingId() {
+    return this.editing?.id ?? null;
+  }
+
+  // A card changed on another device too, merged (merge.js resolveConflict):
+  // its merged state (or null when it was deleted there) and maybe a copy
+  // of the other version. A card being edited keeps its editor and content.
+  // Not an undo step: nothing was done here.
+  applyConflict(id, { item, copy }) {
+    if (!item) {
+      this.removeItem(id);
+    } else if (this.editing?.id !== id) {
+      this.setItemState(id, item);
+    }
+
+    if (copy && !this.items.has(copy.id)) {
+      this.addItem(copy);
+    }
+
+    this.syncConnectors();
+    this.renderSelection();
+    this.itemsChanged();
+  }
+
+  // Selects a card and centres the view on it (trash: "Show").
+  revealCard(id) {
+    const item = this.items.get(id);
+
+    if (!item) {
+      return false;
+    }
+
+    this.viewport.measure();
+    this.viewport.setView(item.x + item.w / 2, item.y + item.h / 2, this.viewport.zoom);
+    this.setSelection([id]);
+    return true;
+  }
+
   // Server copy after a refetch (with unsaved local changes already applied).
   applyRemote(items) {
     const incoming = new Map(items.map((item) => [item.id, item]));
@@ -2173,12 +2211,14 @@ export class BoardView {
 
   onKeyDown(event) {
     // Keys used in the menu, the property column or its choice menus are theirs
-    // (arrow keys must not nudge the cards, Delete must not delete them).
+    // (arrow keys must not nudge the cards, Delete must not delete them), and
+    // so are those in a dialog (Recently deleted, Backups).
     if (
       !this.boardId
       || isTextField(event.target)
       || this.menu.element.contains(event.target)
-      || (event.target instanceof Element && event.target.closest(".property-bar, .prop-menu-popup"))
+      || (event.target instanceof Element && event.target.closest(".property-bar, .prop-menu-popup, dialog"))
+      || document.querySelector("dialog[open]")
     ) {
       return;
     }

@@ -5,6 +5,14 @@
 // is sent again card by card, so one bad card doesn't take the others with
 // it. Queues are per board, so
 // changes still save after navigating to another board.
+//
+// Conflicts: the saver remembers, per card, the stored version (its
+// updatedAt and content) that local changes are made from, and sends that
+// updatedAt as each upsert's `base`. When the server says a card has changed
+// since (another device saved it), onConflicts gets the three versions to
+// merge (merge.js); the merged card is queued again with the new base.
+
+import { sameCard } from "./merge.js";
 
 const DEBOUNCE_MS = 800;
 const MAX_OPS_PER_REQUEST = 100;
@@ -18,15 +26,19 @@ const PERMANENT_STATUSES = new Set([400, 404, 409, 413, 415]);
 
 const opKey = (op) => (op.op === "delete" ? op.id : op.item.id);
 
+const cardState = ({ id, type, x, y, w, h, z, color, data }) => structuredClone({ id, type, x, y, w, h, z, color, data });
+
 export class Saver {
-  // save(boardId, ops, { keepalive }) -> Promise<{ rev }>
+  // save(boardId, ops, { keepalive }) -> Promise<{ rev, updatedAt, conflicts }>
   // onStatus(state): "saved" | "saving" | "offline" | "expired" | "error"
   // onSaved(boardId, rev), onRejected(error, boardId)
-  constructor({ save, onStatus, onSaved, onRejected }) {
+  // onConflicts(boardId, [{ id, base, local, server, deleted }])
+  constructor({ save, onStatus, onSaved, onRejected, onConflicts }) {
     this.save = save;
     this.onStatus = onStatus;
     this.onSaved = onSaved;
     this.onRejected = onRejected;
+    this.onConflicts = onConflicts;
     this.pending = new Map();
     this.inFlight = null;
     this.debounceTimer = null;
@@ -34,7 +46,36 @@ export class Saver {
     this.retryDelay = 0;
     this.failure = null;
     this.rejected = false;
+    // id -> { updatedAt, item }: the stored version local changes are made from.
+    this.bases = new Map();
+    // id -> item: sent, but the answer never came (the connection dropped).
+    // A conflict with exactly this is this device's own save.
+    this.unconfirmed = new Map();
     this.updateStatus();
+  }
+
+  // Cards as the server has them now (a board was loaded or fetched again).
+  // Cards with changes still to save keep the base those changes came from.
+  remember(items) {
+    for (const item of items) {
+      if (Number.isSafeInteger(item.updatedAt) && !this.isQueued(item.id)) {
+        this.bases.set(item.id, { updatedAt: item.updatedAt, item: cardState(item) });
+      }
+    }
+  }
+
+  isQueued(id) {
+    if (this.inFlight?.ops.has(id)) {
+      return true;
+    }
+
+    for (const board of this.pending.values()) {
+      if (board.has(id)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   queue(boardId, ops) {
@@ -141,9 +182,22 @@ export class Saver {
   // One request. Null once saved, the error when the server rejects the ops
   // for good; throws when the server can't be reached.
   async attempt(boardId, ops, keepalive) {
+    // Each upsert carries the updatedAt of the version it was made from.
+    const sentBases = new Map();
+    const request = [...ops.values()].map((op) => {
+      if (op.op !== "upsert") {
+        return op;
+      }
+
+      const base = this.bases.get(op.item.id) ?? null;
+      sentBases.set(op.item.id, base);
+      return base ? { ...op, base: base.updatedAt } : op;
+    });
+
     try {
-      const { rev } = await this.save(boardId, [...ops.values()], { keepalive });
-      this.onSaved?.(boardId, rev);
+      const result = await this.save(boardId, request, { keepalive });
+      this.confirm(boardId, ops, sentBases, result ?? {});
+      this.onSaved?.(boardId, result?.rev);
       return null;
     } catch (error) {
       if (PERMANENT_STATUSES.has(error?.status)) {
@@ -151,6 +205,72 @@ export class Saver {
       }
 
       throw error;
+    }
+  }
+
+  // The server answered for `ops`: saved cards get the new base; cards that
+  // changed elsewhere in the meantime go to onConflicts to be merged.
+  confirm(boardId, ops, sentBases, { updatedAt, conflicts = [] }) {
+    const conflicted = new Map(
+      (Array.isArray(conflicts) ? conflicts : [])
+        .filter((conflict) => conflict?.item?.id && ops.has(conflict.item.id))
+        .map((conflict) => [conflict.item.id, conflict])
+    );
+    const toMerge = [];
+
+    for (const [id, conflict] of conflicted) {
+      const server = cardState(conflict.item);
+      const sent = ops.get(id);
+      const queued = this.pending.get(boardId)?.get(id);
+      const own = this.unconfirmed.get(id);
+
+      this.unconfirmed.delete(id);
+      this.bases.set(id, { updatedAt: conflict.item.updatedAt, item: server });
+
+      // Deleted here since: that delete goes ahead.
+      if (queued?.op === "delete") {
+        continue;
+      }
+
+      // Our own earlier save, whose answer was lost: nothing clashed. Send
+      // the latest local version again (now with the right base) if it differs.
+      if (own && !conflict.deleted && sameCard(own, server)) {
+        if (!queued && !sameCard(sent.item, server)) {
+          this.queue(boardId, [sent]);
+        }
+
+        continue;
+      }
+
+      toMerge.push({
+        id,
+        base: sentBases.get(id)?.item ?? null,
+        local: queued?.item ?? sent.item,
+        server,
+        deleted: Boolean(conflict.deleted)
+      });
+    }
+
+    for (const [id, op] of ops) {
+      if (conflicted.has(id)) {
+        continue;
+      }
+
+      this.unconfirmed.delete(id);
+
+      // An older server doesn't say when it saved; the next change has no base.
+      if (!Number.isSafeInteger(updatedAt)) {
+        this.bases.delete(id);
+      } else if (op.op === "upsert") {
+        this.bases.set(id, { updatedAt, item: op.item });
+      } else if (this.bases.has(id)) {
+        // Deleted now: undoing the delete is made from this version.
+        this.bases.set(id, { updatedAt, item: this.bases.get(id).item });
+      }
+    }
+
+    if (toMerge.length) {
+      this.onConflicts?.(boardId, toMerge);
     }
   }
 
@@ -219,6 +339,11 @@ export class Saver {
       for (const [key, op] of ops) {
         if (!board.has(key)) {
           board.set(key, op);
+        }
+
+        // The request may have been saved even though no answer came.
+        if (op.op === "upsert") {
+          this.unconfirmed.set(key, op.item);
         }
       }
 

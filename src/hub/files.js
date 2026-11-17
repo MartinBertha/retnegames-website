@@ -2,10 +2,12 @@
 // from the file's own bytes, never from what the client declares; only PNG,
 // JPEG, WebP and GIF are accepted (no SVG). Files live in R2 under images/<id>.
 
-import { HttpError, json, readBytes } from "./http.js";
-import { isUuid } from "./validate.js";
+import { HttpError, json, readBytes, readJson } from "./http.js";
+import { isPlainObject, isUuid } from "./validate.js";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_LOOKUP_IDS = 1_000;
+const MAX_LOOKUP_BYTES = 64 * 1024;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const JPEG_FRAME_MARKERS = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
 
@@ -116,6 +118,28 @@ export async function uploadFile({ request, env }) {
   ).bind(id, image.mime, bytes.byteLength, image.width, image.height, Date.now()).run();
 
   return json({ id, width: image.width, height: image.height }, 201);
+}
+
+// POST /files/missing { ids }: which of these images this hub doesn't have.
+// Importing an export with images (a .zip) uploads only those.
+export async function missingFiles({ request, env }) {
+  const body = await readJson(request, MAX_LOOKUP_BYTES);
+
+  if (
+    !isPlainObject(body)
+    || !Array.isArray(body.ids)
+    || body.ids.length > MAX_LOOKUP_IDS
+    || !body.ids.every(isUuid)
+  ) {
+    throw new HttpError(400, `Send up to ${MAX_LOOKUP_IDS.toLocaleString("en")} image ids.`);
+  }
+
+  const { results } = await env.DB.prepare(
+    "SELECT id FROM files WHERE id IN (SELECT value FROM json_each(?1))"
+  ).bind(JSON.stringify(body.ids)).all();
+
+  const known = new Set(results.map((row) => row.id));
+  return json({ missing: [...new Set(body.ids)].filter((id) => !known.has(id)) });
 }
 
 // GET /files/:id. Ids are never reused, so the browser may cache forever.

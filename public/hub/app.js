@@ -3,15 +3,21 @@
 // User data only ever reaches the DOM through textContent.
 
 import { api, ApiError } from "./api.js";
+import { exportWithImages, isZip, unpackZipExport } from "./archive.js";
+import { openBackups } from "./backups.js";
 import { BoardView } from "./board.js";
 import { httpUrl } from "./cards.js";
 import { CARDS_MIME, makePayload, parsePayload, payloadText, storedPayload, storePayload } from "./clipboard.js";
+import { isDialogOpen } from "./dialog.js";
 import { IMAGE_ACCEPT, imageFileProblem, prepareImage } from "./images.js";
+import { cardLabel, plural } from "./labels.js";
+import { resolveConflict } from "./merge.js";
 import { initPalette } from "./palette.js";
 import { PropertyBar } from "./properties.js";
 import { Saver } from "./saver.js";
 import { initThemeToggle } from "./theme-toggle.js";
 import { hideToast, showToast } from "./toast.js";
+import { openTrash } from "./trash.js";
 
 const breadcrumb = document.getElementById("breadcrumb");
 const notice = document.getElementById("notice");
@@ -48,6 +54,8 @@ let loadCounter = 0;
 let checking = false;
 let viewTimer = null;
 let savedView = null;
+// A card to select and centre once its board is shown: { boardId, itemId }.
+let pendingReveal = null;
 
 const saver = new Saver({
   save: (boardId, ops, options) => api.saveChanges(boardId, ops, options),
@@ -81,8 +89,58 @@ const saver = new Saver({
       current.rev = -1;
       setTimeout(checkForUpdates, 0);
     }
-  }
+  },
+  onConflicts: resolveConflicts
 });
+
+// Cards changed on another device since this device's version of them
+// (saver.js, merge.js): merged, and where both changed the same text, the
+// other device's version is kept as a copy next to the card.
+function resolveConflicts(boardId, conflicts) {
+  const shown = view.boardId === boardId;
+  const ops = [];
+  const outcomes = { copied: [], kept: [], removed: [] };
+  let z = shown ? view.maxZ() : 0;
+
+  for (const conflict of conflicts) {
+    const editing = shown && view.editingId === conflict.id;
+    const result = resolveConflict(
+      { ...conflict, editing },
+      { newId: () => crypto.randomUUID(), z: shown ? ++z : undefined }
+    );
+
+    ops.push(result.item ? { op: "upsert", item: result.item } : { op: "delete", id: conflict.id });
+
+    if (result.copy) {
+      ops.push({ op: "upsert", item: result.copy });
+    }
+
+    if (shown) {
+      view.applyConflict(conflict.id, result);
+    }
+
+    outcomes[result.outcome]?.push(conflict.server);
+  }
+
+  saver.queue(boardId, ops);
+
+  const where = shown ? "" : " (on another board)";
+  const name = (items) => `"${cardLabel(items[0], 40)}"`;
+
+  if (outcomes.copied.length) {
+    const what = outcomes.copied.length === 1
+      ? `${name(outcomes.copied)} was changed on another device too. Its other version is next to it${where}.`
+      : `${plural(outcomes.copied.length, "card")} were changed on another device too. Their other versions are next to them${where}.`;
+    showToast(what, { timeout: 10_000 });
+  } else if (outcomes.kept.length) {
+    const what = outcomes.kept.length === 1 ? `${name(outcomes.kept)} was` : `${plural(outcomes.kept.length, "card")} were`;
+    showToast(`${what} deleted on another device, but changed here, so kept.`, { timeout: 8000 });
+  } else if (outcomes.removed.length) {
+    const one = outcomes.removed.length === 1;
+    const what = one ? `${name(outcomes.removed)} was` : `${plural(outcomes.removed.length, "card")} were`;
+    showToast(`${what} deleted on another device. ${one ? "It's" : "They're"} in Recently deleted.`, { timeout: 8000 });
+  }
+}
 
 // Set while cutting, so deleted folders don't get their own message.
 let cutting = false;
@@ -462,7 +520,14 @@ async function load() {
     savedView = { viewX: board.viewX, viewY: board.viewY, viewZoom: board.viewZoom };
     notice.replaceChildren();
     renderBreadcrumb();
+    saver.remember(items);
     view.show(board.id, { x: board.viewX, y: board.viewY, zoom: board.viewZoom }, withLocalChanges(board.id, items));
+
+    if (pendingReveal?.boardId === board.id) {
+      view.revealCard(pendingReveal.itemId);
+    }
+
+    pendingReveal = null;
     showZoomLevel();
   } catch (error) {
     if (counter !== loadCounter) {
@@ -470,6 +535,7 @@ async function load() {
     }
 
     current = null;
+    pendingReveal = null;
     view.clear();
     renderBreadcrumb();
     document.title = "retne.games HUB";
@@ -512,6 +578,7 @@ async function checkForUpdates() {
     const path = board.path.slice(0, -1);
     Object.assign(board, data.board, { path: [...path, { id: data.board.id, name: data.board.name }] });
     renderBreadcrumb();
+    saver.remember(data.items);
     view.applyRemote(withLocalChanges(board.id, data.items));
   } catch (error) {
     if (error instanceof ApiError && error.status === 404 && current === board) {
@@ -796,7 +863,7 @@ function onCopy(event, cut) {
     return;
   }
 
-  if (!view.boardId || !view.selected.size || isTextTarget(event.target) || !event.clipboardData) {
+  if (!view.boardId || !view.selected.size || isTextTarget(event.target) || !event.clipboardData || isDialogOpen()) {
     return;
   }
 
@@ -842,7 +909,7 @@ function copiedCards(clipboardData) {
 }
 
 document.addEventListener("paste", (event) => {
-  if (!view.boardId || isTextTarget(event.target) || !event.clipboardData) {
+  if (!view.boardId || isTextTarget(event.target) || !event.clipboardData || isDialogOpen()) {
     return;
   }
 
@@ -923,6 +990,18 @@ moreMenu.addEventListener("keydown", (event) => {
   }
 });
 
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = el("a");
+
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 // Downloads every board and card as JSON (images stay on the server).
 async function exportEverything() {
   setMoreMenu(false, { focus: false });
@@ -934,26 +1013,47 @@ async function exportEverything() {
     const response = await api.exportAll();
     const name = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") || "")?.[1]
       || "retne-hub.json";
-    const url = URL.createObjectURL(await response.blob());
-    const link = el("a");
-
-    link.href = url;
-    link.download = name;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    downloadBlob(await response.blob(), name);
     showToast(`Exported to ${name}.`);
   } catch (error) {
     showToast(error.message || "The export failed.", { tone: "error", timeout: 7000 });
   }
 }
 
-// Adds an export as a new folder on Home; nothing existing is changed.
-async function importFile(file) {
+// Downloads every board and card plus the images, as a .zip (archive.js).
+async function exportEverythingWithImages() {
+  setMoreMenu(false, { focus: false });
+  showToast("Preparing the export…", { timeout: 0 });
+
+  try {
+    await saver.flush();
+
+    const result = await exportWithImages({
+      onProgress: (done, total) => showToast(`Adding images: ${done} of ${total}…`, { timeout: 0 })
+    });
+    const missing = result.missing ? ` ${plural(result.missing, "image")} couldn't be found.` : "";
+
+    downloadBlob(result.blob, result.name);
+    showToast(`Exported to ${result.name}, with ${plural(result.images, "image")}.${missing}`, { timeout: 7000 });
+  } catch (error) {
+    showToast(error.message || "The export failed.", { tone: "error", timeout: 7000 });
+  }
+}
+
+const notAnExport = (file) => `${file.name} isn't a retne.games HUB export.`;
+
+// Reads a .json export, or a .zip export whose missing images get uploaded.
+async function readImport(file) {
+  if (isZip(file)) {
+    const { data, uploaded } = await unpackZipExport(file, {
+      onProgress: (done, total) => showToast(`Uploading images: ${done} of ${total}…`, { timeout: 0 })
+    });
+
+    return { data, uploaded };
+  }
+
   if (file.size > MAX_IMPORT_BYTES) {
-    showToast("Export files can be at most 20 MB.", { tone: "error" });
-    return;
+    throw new Error("Export files can be at most 20 MB.");
   }
 
   let data;
@@ -961,26 +1061,33 @@ async function importFile(file) {
   try {
     data = JSON.parse(await file.text());
   } catch {
-    showToast(`${file.name} isn't a retne.games HUB export.`, { tone: "error" });
-    return;
+    throw new Error(notAnExport(file));
   }
 
   if (data?.format !== "retne-hub-export") {
-    showToast(`${file.name} isn't a retne.games HUB export.`, { tone: "error" });
-    return;
+    throw new Error(notAnExport(file));
   }
 
+  return { data, uploaded: 0 };
+}
+
+// Adds an export as a new folder on Home; nothing existing is changed.
+async function importFile(file) {
   showToast("Importing…", { timeout: 0 });
 
   try {
     await saver.flush();
 
+    const { data, uploaded } = await readImport(file);
+    showToast("Importing…", { timeout: 0 });
+
     const result = await api.importExport(data);
+    const added = uploaded ? ` ${plural(uploaded, "image")} uploaded.` : "";
     const skipped = result.skippedImages
       ? ` ${result.skippedImages} image${result.skippedImages === 1 ? " was" : "s were"} not found and left out.`
       : "";
 
-    showToast(`Imported ${result.boards} boards and ${result.cards} cards into "${result.name}" on Home.${skipped}`, { timeout: 9000 });
+    showToast(`Imported ${result.boards} boards and ${result.cards} cards into "${result.name}" on Home.${added}${skipped}`, { timeout: 9000 });
 
     // Show Home, where the new folder is.
     if (current?.parentId === null) {
@@ -993,6 +1100,44 @@ async function importFile(file) {
   }
 }
 
+// Shows a board, then selects and centres one of its cards.
+function showCard(boardId, itemId) {
+  pendingReveal = { boardId, itemId };
+
+  if (current?.id !== boardId) {
+    history.pushState({}, "", `#/b/${boardId}`);
+  }
+
+  load();
+}
+
+document.getElementById("trash-button").addEventListener("click", () => {
+  setMoreMenu(false, { focus: false });
+  openTrash({
+    onRestored: (entry) => {
+      // Show it here if it's on this board (the next check fetches it).
+      if (current?.id === entry.boardId) {
+        current.rev = -1;
+        checkForUpdates();
+      }
+    },
+    onShow: (entry) => showCard(entry.boardId, entry.item.id)
+  });
+});
+
+document.getElementById("backups-button").addEventListener("click", () => {
+  setMoreMenu(false, { focus: false });
+  openBackups({
+    flush: () => saver.flush(),
+    onRestored: (result) => {
+      showToast(`Restored ${plural(result.boards, "board")} and ${plural(result.cards, "card")} into "${result.name}" on Home.`, { timeout: 9000 });
+      history.pushState({}, "", `#/b/${result.boardId}`);
+      load();
+    }
+  });
+});
+
+document.getElementById("export-zip-button").addEventListener("click", exportEverythingWithImages);
 document.getElementById("export-button").addEventListener("click", exportEverything);
 document.getElementById("import-button").addEventListener("click", () => {
   setMoreMenu(false, { focus: false });

@@ -31,10 +31,14 @@
       <div id="more-menu" class="app-menu" role="menu" aria-label="More" hidden>
         <button type="button" id="snap-toggle" class="menu-item" role="menuitemcheckbox" aria-checked="true">Snap to grid</button>
         <div class="menu-separator" role="separator"></div>
-        <button type="button" id="export-button" class="menu-item" role="menuitem">Export everything</button>
+        <button type="button" id="trash-button" class="menu-item" role="menuitem">Recently deleted…</button>
+        <button type="button" id="backups-button" class="menu-item" role="menuitem">Backups…</button>
+        <div class="menu-separator" role="separator"></div>
+        <button type="button" id="export-zip-button" class="menu-item" role="menuitem">Export with images (.zip)</button>
+        <button type="button" id="export-button" class="menu-item" role="menuitem">Export without images (.json)</button>
         <button type="button" id="import-button" class="menu-item" role="menuitem">Import an export…</button>
       </div>
-      <input type="file" id="import-input" accept="application/json,.json" hidden>
+      <input type="file" id="import-input" accept="application/json,.json,application/zip,.zip" hidden>
     </div>
   </header>
 

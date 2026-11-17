@@ -57,8 +57,14 @@ None of these values are secrets. There are no new secrets in v1.
 - JSON export and import of the board structure.
 - Dark and light theme.
 
+### Added after v1 (data safety)
+- **Recently deleted** (trash): deleted cards can be restored, a folder with its board (sections 5 and 6).
+- **Daily backups** to R2, listed in the app, downloadable and restorable as a copy (sections 5 and 6).
+- **Export with images** as a `.zip`, which imports into any hub, uploading the images it lacks (section 6).
+- **Edits from two devices are merged**, not overwritten: a save says which version it was made from, and a clash in text keeps both versions (section 6 "Saving").
+
 ### Explicitly out of v1
-Curved connectors, adjustable bends or automatic routing around cards or with three or four turns for right-angle lines, connector labels, thickness, dashes or arrowhead choices (lines have a fixed arrowhead at the end), global search, multi-user or sharing, real-time collaboration, offline mode, rich-text editing, trash or version-history UI, comments, due dates on checklist items, native mobile app, any third-party scripts or CDNs.
+Curved connectors, adjustable bends or automatic routing around cards or with three or four turns for right-angle lines, connector labels, thickness, dashes or arrowhead choices (lines have a fixed arrowhead at the end), global search, multi-user or sharing, real-time collaboration, offline mode, rich-text editing, version-history UI, comments, due dates on checklist items, native mobile app, any third-party scripts or CDNs.
 
 ---
 
@@ -178,27 +184,39 @@ All under `/hub/api`, JSON, `Cache-Control: no-store`, authenticated as in secti
 | `GET /boards/:id` | Board metadata, `rev`, its non-deleted items, and the ancestor path for the breadcrumb |
 | `GET /boards/:id/rev` | Just `{ rev }` (cheap check for changes from another device) |
 | `PATCH /boards/:id` | Update `name` and/or view (`viewX`, `viewY`, `viewZoom`) |
-| `POST /boards/:id/changes` | Batched item changes: `{ ops: [ { op: "upsert", item: {...} }, { op: "delete", id } ] }` |
+| `POST /boards/:id/changes` | Batched item changes: `{ ops: [ { op: "upsert", item: {...}, base? }, { op: "delete", id } ] }` → `{ rev, updatedAt, conflicts }` |
 | `POST /boards` | Create a board `{ id, parentId, name }` (the folder card flow normally goes through `/changes`) |
 | `DELETE /boards/:id` | Soft-delete a board and descendants |
 | `POST /files` | Upload an image (raw body, `Content-Type` of the image; header `X-Filename` optional) → `{ id, width, height }` |
+| `POST /files/missing` | `{ ids }` (up to 1,000 image ids) → `{ missing }`, the ones this hub doesn't have (used when importing a `.zip`) |
 | `GET /files/:id` | Stream the image from R2 |
 | `GET /export` | Full JSON export (boards and items; images referenced by `fileId`, not embedded) |
 | `POST /import` | Import an export into new boards under the root (never overwrites existing data) |
+| `GET /trash` | Recently deleted: the 300 most recently deleted items on boards that aren't deleted, newest first: `{ items: [ { item, boardId, boardName, deletedAt } ], limit }` |
+| `GET /backups` | The saved backups, newest first: `{ backups: [ { name, createdAt, size, boards, cards } ], keep }` |
+| `POST /backups` | Back up now, unless nothing changed since the newest backup → `{ created, backup }` |
+| `GET /backups/:name` | Download a backup (an export file) |
+| `POST /backups/:name/restore` | Import a backup into a new folder "Backup <date> <time> UTC" on Home → as `POST /import` |
 
 Notes:
-- `/changes` is applied in one D1 batch (transaction), up to 100 ops and 256 KB per request. It bumps the board's `rev`. A folder `upsert` with a new `childBoardId` creates the child board in the same batch.
-- **Conflicts:** per-item last write wins; the server stamps `updated_at`. Clients refetch the board when the tab regains focus, and when `/rev` shows a newer `rev`.
+- `/changes` is applied in one D1 batch (transaction), up to 100 ops and 256 KB per request. It bumps the board's `rev` (unless nothing was applied). A folder `upsert` with a new `childBoardId` creates the child board in the same batch. `updatedAt` in the answer is the time stamped on every item it saved or deleted.
+- **Conflicts:** an `upsert` may carry `base`, the `updatedAt` of the stored version the change was made from. If the item's stored `updated_at` is no longer `base` (another device saved or deleted it since), that upsert is **not applied**; it comes back in `conflicts` as `{ item, deleted }` with what is stored now, and the client merges (section 6 "Saving"). An upsert without `base` (a new card, a restore from the trash, an older client) and every delete are last write wins; a deleted item stays restorable from the trash. Clients also refetch the board when the tab regains focus, and when `/rev` shows a newer `rev`.
+- **Trash:** restoring is an ordinary `upsert` of the item as listed, without `base`, to its board's `/changes`, so all folder rules apply (a folder card brings back its board and the boards only it led to). Items on a deleted board aren't listed; they come back with their board.
+- **Backups:** a cron trigger (`wrangler.jsonc`, daily at 03:17 UTC) calls `scheduled` in `src/index.js`, which saves `GET /export`'s contents to R2 as `backups/retne-hub-YYYY-MM-DD-HHMMSS.json` (UTC), unless the newest backup already holds the latest change (the largest `updated_at` of boards and items, kept in the object's metadata; panning and zooming don't count). The newest 30 are kept; older ones are deleted. Images aren't copied: they stay in R2 under `images/`. Backup names are checked against that exact pattern, and `GET /files/:id` only ever serves `images/`. Changing the cron needs `npx wrangler triggers deploy`, since `wrangler versions deploy` doesn't apply triggers.
 - **Uploads:** accept only PNG, JPEG, WebP and GIF, max 10 MB. Detect the type from the file's magic bytes server-side; ignore the declared type if it disagrees. **Reject SVG** (script risk). Store with the validated MIME in R2 under `images/<uuid>`.
 - **Serving files:** `Content-Type` from the stored validated MIME, `X-Content-Type-Options: nosniff`, `Cache-Control: private, max-age=31536000, immutable` (ids are unique and never reused).
-- `DELETE` and delete ops are soft deletes (`deleted_at`). No purge job or trash UI in v1.
+- `DELETE` and delete ops are soft deletes (`deleted_at`). There is no purge job yet, so everything deleted stays restorable.
 
 ---
 
 ## 6. Frontend behaviour
 
 ### Layout
-- **Top bar:** breadcrumb (Home › Game › Art), save status ("Saved", "Saving…", "Offline, retrying"), theme toggle, export and import (menu).
+- **Top bar:** breadcrumb (Home › Game › Art), save status ("Saved", "Saving…", "Offline, retrying"), theme toggle, and the ⋯ menu: Snap to grid; Recently deleted…; Backups…; Export with images (.zip); Export without images (.json); Import an export… (`.json` or `.zip`).
+- **Recently deleted** (a dialog): the deleted cards (`GET /trash`), newest first, each with its words (title or first line), kind, board and when it was deleted, and a thumbnail for images. Empty notes, checklists and links aren't listed. **Restore** puts the card back where it was (a folder also brings back its board and everything in it) and turns into **Show**, which opens that board with the card selected and centred.
+- **Backups** (a dialog): what the daily backup does, a **Back up now** button, and the backups (date and time, boards, cards, size), each with **Download** and **Restore a copy** (adds it as a new folder on Home and opens it; nothing is overwritten).
+- **Export with images** downloads `retne-hub-YYYY-MM-DD.zip`: `export.json` (the same as the JSON export), `README.txt`, and every image as `images/<fileId>.<ext>`, built in the browser (`zip.js`: stored entries, CRC-32, no ZIP64, so under 4 GB). **Import** takes a `.json` or such a `.zip`: from a `.zip` it asks `POST /files/missing` which images this hub lacks, uploads those from the archive, points the cards at the new ids, and then imports as usual. A `.zip` re-made by another tool (deflated entries, or everything inside a folder) is read too.
+- Dialogs are native modal `<dialog>` elements; while one is open, the board ignores its keys and the clipboard.
 - **Add-card toolbar** (bottom on mobile, left on desktop): Note, Checklist, Image (file picker), Link, Section, Folder, Line, Right angle. Cards are added by **dragging** a button onto the canvas (an outline of the card follows the pointer and the card lands where it is dropped; dropping Image opens the file picker for that spot). A plain click only shows a hint; Enter or Space on a focused button adds the card in the middle of the view. A new card opens for editing; a toolbar card left empty stays on the board so it can be filled in later, unless editing is cancelled with Escape.
 - **Canvas:** fills the rest of the screen. A subtle dot grid that scales with zoom.
 - **Navigation state** in the URL hash: `#/b/<boardId>`, so refresh and browser back or forward work. No hash means the root board.
@@ -259,6 +277,12 @@ Notes:
 ### Saving
 - Changes are batched and sent to `/changes` about 800 ms after the last edit (also immediately on tab hide and before navigating to another board).
 - Show "Saving…" then "Saved". If a request fails, keep the pending ops in memory, retry with exponential backoff (up to 30 s), and show "Offline, retrying". Warn with `beforeunload` while unsaved changes exist.
+- **Edits on two devices** (`saver.js`, `merge.js`): the saver remembers, for every card, the stored version (its `updatedAt` and content) that this device's changes are made from: set when a board is loaded or fetched again (except for cards with unsaved changes) and after each save. Each upsert sends that `updatedAt` as `base`. When the server reports a conflict, the three versions are merged: *base*, *local* (this device's latest) and *server* (the other device's):
+  - Each property takes the side that changed it. Style merges key by key. Checklist items merge one by one by id (added, ticked or renamed on either side; removed where the other side didn't change them; unticked first).
+  - When both sides changed the same property, this device wins, except for **content** (a note's title and text, a checklist's title and items' text, a link's address and title, an image's caption). Then the card keeps this device's version and the other device's version is added as a **copy** on the grid just right of it, and a message says so. Nothing typed is lost.
+  - A card **being edited** keeps its editor and this device's version; any content changed on the other device goes into the copy.
+  - A card **deleted on the other device** stays deleted (it is in Recently deleted) unless its words were changed here, in which case it is kept, with a message.
+  - Merges aren't undo steps. The merged card is saved again with the new `base`. A save whose answer was lost (connection dropped) and that the server then reports as a conflict with exactly what was sent is recognised as this device's own and isn't treated as a clash.
 - No offline mode in v1.
 
 ### Look and feel
@@ -338,4 +362,4 @@ Each milestone ends with a staging upload and owner approval.
 1. **Previews Access AUD tag** (for staging tests of the hub): the Previews-only Access application has a different AUD tag. Until it is added to `ACCESS_AUDIENCES`, the hub API will return 403 on the staging link; production is unaffected. Get it from Zero Trust → Access controls → Applications → (the Previews application) → Overview.
 2. **Production AUD** confirmation: the value in section 1 was read from the login URL. The first deployment should log (privately, not to the client) whether the audience check passes.
 3. **Policy cleanup:** the `Martin only` Access policy should end up containing only `admin@retne.games`.
-4. **Images in backups:** the JSON export does not include image bytes (they stay in R2). D1 point-in-time restore (Time Travel) covers the database; its retention depends on the Cloudflare plan.
+4. **Images in backups:** the JSON export and the daily backups don't include image bytes (they stay in R2, where nothing deletes them); **Export with images** makes a `.zip` that does, for keeping a copy outside Cloudflare. D1 point-in-time restore (Time Travel) also covers the database; its retention depends on the Cloudflare plan.

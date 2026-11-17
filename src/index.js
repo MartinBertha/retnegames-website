@@ -1,3 +1,4 @@
+import { scheduledBackup } from "./hub/backups.js";
 import { handleHub, isHubPath } from "./hub/index.js";
 import { HttpError, readBytes } from "./hub/http.js";
 
@@ -321,5 +322,10 @@ export default {
 
     const response = await env.ASSETS.fetch(request);
     return securityHeaders(response);
+  },
+
+  // The hub's daily backup (cron trigger in wrangler.jsonc).
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(scheduledBackup(env));
   }
 };

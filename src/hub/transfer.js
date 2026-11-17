@@ -57,8 +57,9 @@ const finite = (value, min, max, fallback) => (
   typeof value === "number" && Number.isFinite(value) && value >= min && value <= max ? value : fallback
 );
 
-// GET /export
-export async function exportAll({ env }) {
+// Every live board and card, as an export file's contents (also used for the
+// daily backups in backups.js).
+export async function buildExport(env, date = new Date()) {
   const [boards, items, files] = await env.DB.batch([
     env.DB.prepare(
       `SELECT id, parent_id, name, view_x, view_y, view_zoom
@@ -80,11 +81,10 @@ export async function exportAll({ env }) {
     )
   ]);
 
-  const exportedAt = new Date().toISOString();
-  const body = {
+  return {
     format: FORMAT,
     version: VERSION,
-    exportedAt,
+    exportedAt: date.toISOString(),
     boards: boards.results.map((row) => ({
       id: row.id,
       parentId: row.parent_id,
@@ -107,9 +107,14 @@ export async function exportAll({ env }) {
     })),
     files: files.results
   };
+}
+
+// GET /export
+export async function exportAll({ env }) {
+  const body = await buildExport(env);
 
   return json(body, 200, {
-    "content-disposition": `attachment; filename="retne-hub-${exportedAt.slice(0, 10)}.json"`
+    "content-disposition": `attachment; filename="retne-hub-${body.exportedAt.slice(0, 10)}.json"`
   });
 }
 
@@ -173,7 +178,13 @@ function readBoards(raw) {
 // POST /import: the body is a file made by GET /export.
 export async function importExport({ request, env }) {
   const body = await readJson(request, MAX_IMPORT_BYTES);
+  return json(await importData(env, body), 201);
+}
 
+// Adds an export's boards and cards under Home, in a new folder called `name`
+// (by default "Imported <today>"). Used by POST /import and by restoring a
+// backup (backups.js).
+export async function importData(env, body, { name } = {}) {
   if (
     !isPlainObject(body)
     || body.format !== FORMAT
@@ -311,7 +322,7 @@ export async function importExport({ request, env }) {
 
   const now = Date.now();
   const importId = newIds.get(root.id);
-  const importName = `Imported ${new Date(now).toISOString().slice(0, 10)}`;
+  const importName = name ? cleanName(name) : `Imported ${new Date(now).toISOString().slice(0, 10)}`;
 
   const boardRows = [
     ...[...boards.values()].map((board) => ({
@@ -380,11 +391,11 @@ export async function importExport({ request, env }) {
 
   await env.DB.batch(statements);
 
-  return json({
+  return {
     boardId: importId,
     name: importName,
     boards: boardRows.length,
     cards: itemRows.length - 1,
     skippedImages
-  }, 201);
+  };
 }

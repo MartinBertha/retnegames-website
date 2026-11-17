@@ -40,6 +40,13 @@
     }
   ],
 
+  // The hub's daily backup to R2 (src/hub/backups.js), at 03:17 UTC.
+  // `wrangler versions deploy` doesn't apply trigger changes: after changing
+  // this, run `npx wrangler triggers deploy` (or a full `wrangler deploy`).
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
+
   // Not secrets. ACCESS_AUDIENCES is a comma-separated list of Access AUD tags.
   "vars": {
     "ACCESS_TEAM_DOMAIN": "sweet-brook-c60e.cloudflareaccess.com",
