@@ -330,7 +330,7 @@ export function setAlpha(item, percent) {
 
 const FLEX = { top: "flex-start", middle: "center", bottom: "flex-end" };
 // Room for the marker of a list item (in em, so it follows the text size).
-const LIST_INDENT = "1.9em";
+const LIST_INDENT = "1.6em";
 
 // The CSS custom properties that draw an object's style, set on its element;
 // only what differs from the stylesheet's own defaults. hub.css reads them as

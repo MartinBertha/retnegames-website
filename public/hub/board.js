@@ -1281,6 +1281,7 @@ export class BoardView {
 
     if (this.editing?.id === id) {
       applyCardStyle(card, item);
+      this.editing.restyle?.();
     } else {
       updateCardElement(card, item);
     }

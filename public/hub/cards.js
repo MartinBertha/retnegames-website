@@ -121,20 +121,39 @@ function renderNoteBody(parent, text, list) {
 
   parent.dataset.list = list;
   parent.setAttribute("role", "list");
+  appendListLines(parent, text);
+}
 
-  for (const line of text.replace(/\n+$/, "").split("\n")) {
-    const item = el("div", "note-line");
+// The lines of a list, one element each. While editing (the invisible copy of
+// the text that sits under the editor and draws its markers, editors.js) the
+// text is plain and a final empty line counts as the next item, so its marker
+// shows as soon as Enter is pressed.
+export function appendListLines(parent, text, { editing = false } = {}) {
+  const lines = (editing ? text : text.replace(/\n+$/, "")).split("\n");
 
-    if (line.trim()) {
-      item.setAttribute("role", "listitem");
-      appendLinkedText(item, line);
+  lines.forEach((line, index) => {
+    const row = el("div", "note-line");
+    const open = editing && index === lines.length - 1;
+
+    if (line.trim() || open) {
+      row.setAttribute("role", "listitem");
+
+      if (editing) {
+        row.append(el("span", "note-line-text", line));
+      } else {
+        appendLinkedText(row, line);
+      }
+
+      if (!line) {
+        row.append(document.createElement("br"));
+      }
     } else {
-      item.classList.add("is-blank");
-      item.append(document.createElement("br"));
+      row.classList.add("is-blank");
+      row.append(document.createElement("br"));
     }
 
-    parent.append(item);
-  }
+    parent.append(row);
+  });
 }
 
 function folderIcon() {

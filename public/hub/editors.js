@@ -4,7 +4,8 @@
 // Values reach the item only as plain strings.
 
 import { addEntry, removeEntry } from "./checklist.js";
-import { httpUrl, renderChecklist } from "./cards.js";
+import { appendListLines, httpUrl, renderChecklist } from "./cards.js";
+import { textValue } from "./styles.js";
 
 const MAX_NOTE_LENGTH = 20_000;
 const MAX_TITLE_LENGTH = 100;
@@ -75,8 +76,34 @@ function noteEditor(view, item, card, { fresh, focusTitle }) {
   editor.setAttribute("aria-label", "Note text");
   title.hidden = true;
   text.hidden = true;
+
+  // The editor sits over an invisible copy of its text that draws the markers
+  // of a list (a text area can't). The copy is laid out exactly like the
+  // editor, so every marker is level with its line.
+  const box = document.createElement("div");
+  const mirror = document.createElement("div");
+
+  box.className = "note-edit";
+  mirror.className = "note-mirror";
+  mirror.setAttribute("aria-hidden", "true");
+  box.append(mirror, editor);
   card.insertBefore(titleInput, handle);
-  card.insertBefore(editor, handle);
+  card.insertBefore(box, handle);
+
+  const showMarkers = () => {
+    const list = textValue(item, "body", "list");
+
+    mirror.replaceChildren();
+
+    if (list === "none") {
+      delete mirror.dataset.list;
+    } else {
+      mirror.dataset.list = list;
+      appendListLines(mirror, editor.value, { editing: true });
+    }
+  };
+
+  showMarkers();
 
   // Saved as you type; the undo step covers the whole edit.
   titleInput.addEventListener("input", () => {
@@ -86,6 +113,7 @@ function noteEditor(view, item, card, { fresh, focusTitle }) {
 
   editor.addEventListener("input", () => {
     item.data.text = editor.value;
+    showMarkers();
     view.growToFit(item, card, editor);
     view.emit([item.id]);
   });
@@ -118,11 +146,13 @@ function noteEditor(view, item, card, { fresh, focusTitle }) {
   view.growToFit(item, card, editor);
 
   return {
+    // The list was changed (or made another size...) while editing.
+    restyle: showMarkers,
     finish() {
       stop();
       card.removeEventListener("keydown", onEscape);
       titleInput.remove();
-      editor.remove();
+      box.remove();
       title.hidden = false;
       text.hidden = false;
       item.data.title = (item.data.title ?? "").trim();

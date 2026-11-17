@@ -439,7 +439,7 @@ describe("list formatting of a note's body", () => {
 
     setTextValue(n, "body", "list", "bullet");
     assert.equal(styleVars(n)["--body-align"], undefined);
-    assert.equal(styleVars(n)["--body-indent"], "1.9em");
+    assert.equal(styleVars(n)["--body-indent"], "1.6em");
     assert.equal(n.data.style.body.align, "center");
 
     setTextValue(n, "body", "list", "none");

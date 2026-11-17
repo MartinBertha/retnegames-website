@@ -718,7 +718,8 @@ body.is-placing * {
 }
 
 .note-text,
-.note-editor {
+.note-editor,
+.note-mirror {
   display: block;
   flex: 1;
   width: 100%;
@@ -737,7 +738,8 @@ body.is-placing * {
 }
 
 .note-title:not([hidden]) + .note-text,
-.note-title-editor + .note-editor {
+.note-title-editor + .note-edit .note-editor,
+.note-title-editor + .note-edit .note-mirror {
   padding-top: 4px;
 }
 
@@ -758,41 +760,67 @@ body.is-placing * {
   resize: none;
 }
 
-/* A note's text as a list (data-list on the text): every line is an item, with
-   its marker in the margin. The marker is drawn here, from a counter, so the
-   stored text stays plain; blank lines are gaps and aren't counted. The editor
-   is indented the same (--body-indent, set with the list), so the text
-   doesn't jump when editing starts. */
+/* While a note is edited, the text area sits over an invisible copy of its text
+   (the mirror), laid out exactly like it, that draws the markers of a list. */
+.note-edit {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.note-edit .note-editor {
+  position: relative;
+}
+
+.note-mirror {
+  position: absolute;
+  inset: 0;
+  flex: none;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.note-line-text {
+  color: transparent;
+}
+
+/* A note's text as a list (data-list on the text, or on the mirror while
+   editing): every line is an item, with its marker flush left with the title.
+   The marker is drawn here, from a counter, so the stored text stays plain;
+   blank lines are gaps and aren't counted. The editor is indented the same
+   (--body-indent, set with the list), so the text doesn't jump when editing
+   starts. */
 .note-editor {
   padding-left: calc(14px + var(--body-indent, 0px));
 }
 
-.note-text-inner[data-list] {
+[data-list] {
   counter-reset: note-item;
 }
 
 .note-line {
   position: relative;
-  padding-left: var(--body-indent, 1.9em);
+  padding-left: var(--body-indent, 1.6em);
 }
 
 .note-line:not(.is-blank)::before {
   position: absolute;
   left: 0;
-  width: 1.5em;
-  text-align: right;
+  color: var(--body-color, var(--text));
   counter-increment: note-item;
 }
 
-.note-text-inner[data-list="bullet"] .note-line:not(.is-blank)::before {
+[data-list="bullet"] > .note-line:not(.is-blank)::before {
   content: "•";
 }
 
-.note-text-inner[data-list="number"] .note-line:not(.is-blank)::before {
+[data-list="number"] > .note-line:not(.is-blank)::before {
   content: counter(note-item) ".";
 }
 
-.note-text-inner[data-list="alpha"] .note-line:not(.is-blank)::before {
+[data-list="alpha"] > .note-line:not(.is-blank)::before {
   content: counter(note-item, lower-alpha) ".";
 }
 
@@ -1905,6 +1933,7 @@ body.is-placing * {
   .canvas .folder-name-editor,
   .canvas .link-editor input,
   .canvas .note-s .note-editor,
+  .canvas .note-s .note-mirror,
   .crumb-editor {
     font-size: 16px;
   }
