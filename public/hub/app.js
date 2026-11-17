@@ -20,6 +20,7 @@ import { Saver } from "./saver.js";
 import { initThemeToggle } from "./theme-toggle.js";
 import { hideToast, showToast } from "./toast.js";
 import { openTrash } from "./trash.js";
+import { openImageViewer } from "./viewer.js";
 
 const breadcrumb = document.getElementById("breadcrumb");
 const notice = document.getElementById("notice");
@@ -223,7 +224,11 @@ const view = new BoardView(
         goToBoard(boardId);
       }
     },
-    onCopyLink: (id) => copyCardLink(id)
+    onCopyLink: (id) => copyCardLink(id),
+    onViewImage: (id) => viewImage(id),
+    canMove: () => true,
+    onMoveSelection: () => chooseMoveTarget(),
+    onCopyBoard: (id) => copyFolderBoard(id)
   }
 );
 
@@ -1228,6 +1233,162 @@ async function copyCardLink(id) {
 }
 
 document.getElementById("search-button").addEventListener("click", () => finder.open());
+
+// ---- Image viewer (viewer.js) -----------------------------------------------------
+
+// The board's images in reading order (top to bottom, left to right).
+function viewImage(id) {
+  const images = [...view.items.values()]
+    .filter((item) => item.type === "image")
+    .sort((a, b) => a.y - b.y || a.x - b.x);
+  const start = images.findIndex((item) => item.id === id);
+
+  openImageViewer(images.map((item) => ({ fileId: item.data.fileId, caption: item.data.caption })), Math.max(0, start));
+}
+
+// ---- Move to board ----------------------------------------------------------------
+
+const MAX_MOVE = 100;
+
+// Boards a folder leads to (its board and the boards inside it, by home).
+function boardsInside(index, boardId) {
+  const inside = new Set([boardId]);
+  let grew = true;
+
+  while (grew && index) {
+    grew = false;
+
+    for (const board of index.boards.values()) {
+      if (board.parentId && inside.has(board.parentId) && !inside.has(board.id)) {
+        inside.add(board.id);
+        grew = true;
+      }
+    }
+  }
+
+  return inside;
+}
+
+// Picks the board to move the selected cards to (a section brings the cards
+// inside it, as with copy). Not this board, nor one inside a folder being moved.
+async function chooseMoveTarget() {
+  const items = view.copySelection();
+
+  if (!items.length || !view.boardId) {
+    return;
+  }
+
+  if (items.length > MAX_MOVE) {
+    showToast(`Move at most ${MAX_MOVE} cards at a time.`, { tone: "error", timeout: 6000 });
+    return;
+  }
+
+  const index = currentIndex() ?? await refreshIndex().catch(() => null);
+  const exclude = new Set([view.boardId]);
+
+  for (const item of items) {
+    if (item.type === "folder") {
+      boardsInside(index, item.data.childBoardId).forEach((id) => exclude.add(id));
+    }
+  }
+
+  finder.open({
+    pick: {
+      title: `Move ${items.length === 1 ? `"${cardLabel(items[0], 30)}"` : plural(items.length, "card")} to which board?`,
+      exclude,
+      onPick: (boardId, boardName) => moveCards(items, boardId, boardName)
+    }
+  });
+}
+
+// The copies are saved on the other board first (in the middle of where it
+// was last viewed, above its cards); only then are the originals deleted
+// here, as one undo step. They get new ids, like cut and paste.
+async function moveCards(items, targetId, targetName) {
+  const sourceId = view.boardId;
+  const ids = items.map((item) => item.id);
+
+  showToast("Moving…", { timeout: 0 });
+
+  try {
+    await saver.flush();
+
+    const target = await api.getBoard(targetId);
+    const topZ = target.items.reduce((max, item) => Math.max(max, item.z), 0);
+    const copies = view.prepareCopies(items, { x: target.board.viewX, y: target.board.viewY }, { avoid: target.items, z: topZ });
+
+    await api.saveChanges(targetId, copies.map((item) => ({ op: "upsert", item })));
+
+    if (view.boardId === sourceId) {
+      view.deleteIds(ids);
+    } else {
+      saver.queue(sourceId, ids.map((id) => ({ op: "delete", id })));
+    }
+
+    showToast(`Moved ${plural(items.length, "card")} to "${targetName}".`, {
+      timeout: 8000,
+      action: { label: "Show", onClick: () => goToBoard(targetId) }
+    });
+    refreshIndex().catch(() => {});
+  } catch (error) {
+    showToast(`Nothing was moved. ${error.message || ""}`.trim(), { tone: "error", timeout: 9000 });
+  }
+}
+
+// ---- Duplicate a board as a separate copy -------------------------------------------
+
+// A folder card's board, with every board and card inside it, copied as a new
+// board with a new folder card just right of the original (POST /boards/:id/copy).
+async function copyFolderBoard(id) {
+  const folder = view.items.get(id);
+
+  if (!folder || folder.type !== "folder" || !view.boardId) {
+    return;
+  }
+
+  const boardId = view.boardId;
+  showToast(`Copying "${folder.data.name}"…`, { timeout: 0 });
+
+  try {
+    await saver.flush();
+
+    const result = await api.copyBoard(folder.data.childBoardId, {
+      into: boardId,
+      x: folder.x + folder.w + 24,
+      y: folder.y,
+      z: view.maxZ() + 1
+    });
+
+    if (current?.id === boardId) {
+      await refetchBoard();
+      view.revealCard(result.folderId);
+    }
+
+    showToast(`Copied "${folder.data.name}" as "${result.name}": ${plural(result.boards, "board")}, ${plural(result.cards, "card")}.`, { timeout: 8000 });
+    refreshIndex().catch(() => {});
+  } catch (error) {
+    showToast(error.message || "The board couldn't be copied.", { tone: "error", timeout: 9000 });
+  }
+}
+
+// Shows the open board as the server has it now (with unsaved changes on top).
+async function refetchBoard() {
+  const board = current;
+
+  if (!board) {
+    return;
+  }
+
+  const data = await api.getBoard(board.id);
+
+  if (current !== board) {
+    return;
+  }
+
+  Object.assign(board, data.board, { path: board.path });
+  saver.remember(data.items);
+  view.applyRemote(withLocalChanges(board.id, data.items));
+}
 
 // Ctrl/Cmd+K anywhere, or "/" when not typing, opens Go to.
 document.addEventListener("keydown", (event) => {

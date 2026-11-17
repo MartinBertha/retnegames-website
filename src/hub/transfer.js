@@ -46,7 +46,8 @@ export function chunkRows(rows, maxRows = ITEMS_PER_STATEMENT, maxBytes = BYTES_
 
   return chunks;
 }
-const FOLDER_SIZE = { w: 160, h: 150 };
+// A folder card's standard size (public/hub/cards.js CARD_TYPES.folder).
+const FOLDER_SIZE = { w: 168, h: 144 };
 const GAP = 40;
 
 function invalid(message) {
@@ -181,10 +182,13 @@ export async function importExport({ request, env }) {
   return json(await importData(env, body), 201);
 }
 
-// Adds an export's boards and cards under Home, in a new folder called `name`
-// (by default "Imported <today>"). Used by POST /import and by restoring a
-// backup (backups.js).
-export async function importData(env, body, { name } = {}) {
+// Adds an export's boards and cards in a new folder called `name` (by default
+// "Imported <today>"), on Home or on the board `into`, placed at `place`
+// ({ x, y, z }; by default below the cards there). Folder cards whose board
+// isn't in the export keep opening it when it's in `sharedLinks` (copying a
+// board in this hub), else get a new empty board. Used by POST /import,
+// restoring a backup (backups.js) and copying a board (POST /boards/:id/copy).
+export async function importData(env, body, { name, into = null, place = null, sharedLinks = null } = {}) {
   if (
     !isPlainObject(body)
     || body.format !== FORMAT
@@ -221,21 +225,38 @@ export async function importData(env, body, { name } = {}) {
 
   // Image cards only come along if their file is in this hub's storage.
   const fileIds = [...new Set(items.filter((item) => item.type === "image").map((item) => item.data.fileId))];
-  const [rootResult, existingFiles] = await env.DB.batch([
-    env.DB.prepare(
+  const target = into
+    ? env.DB.prepare(
       `SELECT boards.id,
               (SELECT MIN(x) FROM items WHERE board_id = boards.id AND deleted_at IS NULL) AS min_x,
               (SELECT MAX(y + h) FROM items WHERE board_id = boards.id AND deleted_at IS NULL) AS max_y,
-              (SELECT MAX(z) FROM items WHERE board_id = boards.id AND deleted_at IS NULL) AS max_z
+              (SELECT MAX(z) FROM items WHERE board_id = boards.id AND deleted_at IS NULL) AS max_z,
+              (SELECT COUNT(*) FROM items WHERE board_id = boards.id AND deleted_at IS NULL) AS count
+       FROM boards WHERE id = ?1 AND deleted_at IS NULL`
+    ).bind(into)
+    : env.DB.prepare(
+      `SELECT boards.id,
+              (SELECT MIN(x) FROM items WHERE board_id = boards.id AND deleted_at IS NULL) AS min_x,
+              (SELECT MAX(y + h) FROM items WHERE board_id = boards.id AND deleted_at IS NULL) AS max_y,
+              (SELECT MAX(z) FROM items WHERE board_id = boards.id AND deleted_at IS NULL) AS max_z,
+              (SELECT COUNT(*) FROM items WHERE board_id = boards.id AND deleted_at IS NULL) AS count
        FROM boards WHERE parent_id IS NULL AND deleted_at IS NULL`
-    ),
+    );
+  const [rootResult, existingFiles] = await env.DB.batch([
+    target,
     env.DB.prepare("SELECT id FROM files WHERE id IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(fileIds))
   ]);
 
   const home = rootResult.results[0];
 
   if (!home) {
-    throw new HttpError(409, "The Home board doesn't exist yet. Open the hub once, then import.");
+    throw into
+      ? new HttpError(404, "Board not found.")
+      : new HttpError(409, "The Home board doesn't exist yet. Open the hub once, then import.");
+  }
+
+  if (home.count + 1 > MAX_ITEMS_PER_BOARD) {
+    invalid(`A board can hold at most ${MAX_ITEMS_PER_BOARD.toLocaleString("en")} cards.`);
   }
 
   const knownFiles = new Set(existingFiles.results.map((row) => row.id));
@@ -261,6 +282,8 @@ export async function importData(env, body, { name } = {}) {
       if (boards.has(child) && child !== root.id) {
         linked.add(child);
         item.data.childBoardId = newIds.get(child);
+      } else if (sharedLinks?.has(child)) {
+        // Copying within this hub: still opens the same board.
       } else {
         const id = crypto.randomUUID();
         newBoards.push({ id, parentId: newIds.get(item.boardId), name: item.data.name, viewX: 0, viewY: 0, viewZoom: 1 });
@@ -349,16 +372,18 @@ export async function importData(env, body, { name } = {}) {
     data: JSON.stringify(item.data)
   }));
 
-  // The folder card on Home, below what's there already.
+  // The folder card: where asked, else below what's on Home (or `into`) already.
+  const folderId = crypto.randomUUID();
+
   itemRows.push({
-    id: crypto.randomUUID(),
+    id: folderId,
     boardId: home.id,
     type: "folder",
-    x: home.min_x ?? 0,
-    y: (home.max_y ?? 0) + GAP,
+    x: place?.x ?? home.min_x ?? 0,
+    y: place?.y ?? (home.max_y ?? 0) + GAP,
     w: FOLDER_SIZE.w,
     h: FOLDER_SIZE.h,
-    z: (home.max_z ?? 0) + 1,
+    z: place?.z ?? (home.max_z ?? 0) + 1,
     color: null,
     data: JSON.stringify({ name: importName, childBoardId: importId })
   });
@@ -393,6 +418,7 @@ export async function importData(env, body, { name } = {}) {
 
   return {
     boardId: importId,
+    folderId,
     name: importName,
     boards: boardRows.length,
     cards: itemRows.length - 1,

@@ -120,18 +120,25 @@ export class Finder {
     this.onOpenBoard = onOpenBoard;
     this.onOpenCard = onOpenCard;
     this.dialog = null;
+    this.pick = null;
   }
 
   get isOpen() {
     return Boolean(this.dialog);
   }
 
-  open() {
-    if (this.dialog) {
+  // pick: { title, exclude, onPick } turns it into a board picker (Move to
+  // board): only boards are listed and searched, minus those in `exclude`,
+  // and choosing one calls onPick(boardId).
+  open({ pick = null } = {}) {
+    if (this.dialog && !pick && !this.pick) {
       this.input.focus();
       this.input.select();
       return;
     }
+
+    this.close();
+    this.pick = pick;
 
     const id = `finder-${++counter}`;
     const dialog = el("dialog", "dialog finder");
@@ -141,9 +148,9 @@ export class Finder {
     const status = el("p", "finder-status");
     const foot = el("p", "finder-foot", "↑ ↓ to choose · Enter to open · Esc to close");
 
-    dialog.setAttribute("aria-label", "Search and go to");
+    dialog.setAttribute("aria-label", pick ? pick.title : "Search and go to");
     input.type = "search";
-    input.placeholder = "Search boards and cards…";
+    input.placeholder = pick ? `${pick.title} Type to find a board…` : "Search boards and cards…";
     input.autocomplete = "off";
     input.spellcheck = false;
     input.enterKeyHint = "go";
@@ -178,7 +185,11 @@ export class Finder {
     });
     dialog.addEventListener("close", () => {
       dialog.remove();
-      this.dialog = null;
+
+      if (this.dialog === dialog) {
+        this.dialog = null;
+        this.pick = null;
+      }
     });
 
     dialog.showModal();
@@ -247,12 +258,15 @@ export class Finder {
     }
 
     const current = this.getBoardId();
+    const allowed = (id) => !this.pick?.exclude.has(id);
     const recent = readRecent()
-      .filter((id) => id !== current && index.boards.has(id))
+      .filter((id) => id !== current && index.boards.has(id) && allowed(id))
       .slice(0, SHOWN_RECENT)
       .map((id) => ({ kind: "board", board: index.boards.get(id), words: [], showPath: true }));
 
-    const tree = boardTree(index).map(({ board, depth }) => ({ kind: "board", board, depth, words: [], current: board.id === current }));
+    const tree = boardTree(index)
+      .filter(({ board }) => allowed(board.id))
+      .map(({ board, depth }) => ({ kind: "board", board, depth, words: [], current: board.id === current }));
 
     return [
       { title: "Recent boards", rows: recent },
@@ -266,12 +280,17 @@ export class Finder {
     }
 
     const words = queryWords(query);
-    const found = search(index, query);
+    const found = search(index, query, this.pick ? { maxBoards: 30, maxCards: 0 } : undefined);
     const current = this.getBoardId();
     const cards = found.cards.map((result) => ({ kind: "card", ...result, words }));
+    const boards = found.boards.filter(({ board }) => !this.pick?.exclude.has(board.id));
+
+    if (this.pick) {
+      return [{ title: "Boards", rows: boards.map(({ board }) => ({ kind: "board", board, words, showPath: true })) }];
+    }
 
     return [
-      { title: "Boards", rows: found.boards.map(({ board }) => ({ kind: "board", board, words, showPath: true, current: board.id === current })) },
+      { title: "Boards", rows: boards.map(({ board }) => ({ kind: "board", board, words, showPath: true, current: board.id === current })) },
       {
         title: found.moreCards ? `Cards (first ${cards.length} of ${cards.length + found.moreCards})` : "Cards",
         rows: cards
@@ -386,9 +405,12 @@ export class Finder {
   }
 
   choose(row) {
+    const pick = this.pick;
     this.close();
 
-    if (row.kind === "board") {
+    if (pick && row.kind === "board") {
+      pick.onPick(row.board.id, row.board.name);
+    } else if (row.kind === "board") {
       this.onOpenBoard(row.board.id);
     } else {
       this.onOpenCard(row.item.boardId, row.item.id);

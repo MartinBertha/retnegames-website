@@ -79,6 +79,9 @@ export const OBJECT_STYLES = {
     sets: [
       { key: "title", label: "Title", bold: true, props: ["color", "font", "size", "bold", "italic"] },
       { key: "items", label: "Items", bold: false, props: ["color", "font", "size", "bold", "italic", "strike"] }
+    ],
+    extras: [
+      { key: "hideDone", kind: "toggle", label: "Hide ticked items", icon: "hideDone", default: false, group: "Ticked items" }
     ]
   },
   image: {

@@ -3,12 +3,11 @@
 
 import { fileUrl } from "./api.js";
 import { DEFAULT_LENGTH, DEFAULT_RISE, linePoints } from "./connectors.js";
+import { formatLine, lineHeading } from "./format.js";
 import { hubLinkPlace, hubLinkText, hubTarget } from "./hublinks.js";
 import { COLOR_KEYS, styleVars, textValue } from "./styles.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const URL_PATTERN = /https?:\/\/[^\s<>"]+/gi;
-const TRAILING_PUNCTUATION = ".,;:!?'";
 const ROW_MOVE_MS = 180;
 
 export const COLORS = COLOR_KEYS;
@@ -64,23 +63,6 @@ function el(tag, className, text) {
   return node;
 }
 
-// "See https://example.com/a_(b)." links "https://example.com/a_(b)".
-function trimUrl(raw) {
-  let url = raw;
-
-  for (;;) {
-    const last = url.at(-1);
-    const opens = url.split("(").length;
-    const closes = url.split(")").length;
-
-    if (TRAILING_PUNCTUATION.includes(last) || (last === ")" && closes > opens)) {
-      url = url.slice(0, -1);
-    } else {
-      return url;
-    }
-  }
-}
-
 function externalLink(className, href, text) {
   const link = el("a", className, text);
   link.href = href;
@@ -99,23 +81,51 @@ function hubLink(href, target) {
   return link;
 }
 
-function appendLinkedText(parent, text) {
-  let index = 0;
+const FORMAT_TAGS = [["code", "code"], ["strike", "s"], ["italic", "em"], ["bold", "strong"]];
 
-  for (const match of text.matchAll(URL_PATTERN)) {
-    const label = trimUrl(match[0]);
-    const href = httpUrl(label);
+// One line of a note with its formatting (format.js) and its web addresses as
+// links. Only text nodes and fixed elements are made.
+function appendFormatted(parent, line) {
+  for (const token of formatLine(line)) {
+    const href = token.type === "url" ? httpUrl(token.text) : null;
+    const target = href ? hubTarget(href) : null;
+    let node = href
+      ? (target ? hubLink(href, target) : externalLink("", href, token.text))
+      : document.createTextNode(token.text);
 
-    if (!href) {
-      continue;
+    for (const [flag, tag] of FORMAT_TAGS) {
+      if (token[flag]) {
+        const wrapper = document.createElement(tag);
+        wrapper.append(node);
+        node = wrapper;
+      }
     }
 
-    const target = hubTarget(href);
-    parent.append(text.slice(index, match.index), target ? hubLink(href, target) : externalLink("", href, label));
-    index = match.index + label.length;
+    parent.append(node);
   }
+}
 
-  parent.append(text.slice(index));
+// A note's whole text when it isn't a list: lines starting "# ", "## " or
+// "### " are headings (blocks of their own), the rest formatted lines.
+function appendFormattedText(parent, text) {
+  const lines = text.split("\n");
+
+  lines.forEach((line, index) => {
+    const heading = lineHeading(line);
+
+    if (heading) {
+      const block = el("span", `note-heading note-h${heading.level}`);
+      appendFormatted(block, heading.text);
+      parent.append(block);
+      return;
+    }
+
+    appendFormatted(parent, line);
+
+    if (index < lines.length - 1) {
+      parent.append("\n");
+    }
+  });
 }
 
 // Whether a card shows a link into this hub (its words change with the names).
@@ -131,7 +141,7 @@ function renderNoteBody(parent, text, list) {
   if (list === "none") {
     delete parent.dataset.list;
     parent.removeAttribute("role");
-    appendLinkedText(parent, text);
+    appendFormattedText(parent, text);
     return;
   }
 
@@ -157,7 +167,7 @@ export function appendListLines(parent, text, { editing = false } = {}) {
       if (editing) {
         row.append(el("span", "note-line-text", line));
       } else {
-        appendLinkedText(row, line);
+        appendFormatted(row, line);
       }
 
       if (!line) {
@@ -238,8 +248,10 @@ const STRUCTURE = {
   },
   checklist: () => {
     const add = el("button", "entry-add card-control", "+ Add item");
+    const done = el("button", "entry-done-toggle card-control");
     add.type = "button";
-    return [el("div", "checklist-head"), el("ul", "checklist-entries"), add];
+    done.type = "button";
+    return [el("div", "checklist-head"), el("ul", "checklist-entries"), done, add];
   },
   image: () => {
     const image = el("img", "image-content");
@@ -338,12 +350,18 @@ function entryEditor(className, value, label, maxLength) {
   return input;
 }
 
-// Static, or with inputs for the title and every entry while editing.
+// Static, or with inputs for the title and every entry while editing. A
+// titled checklist shows its progress ("2/5") after the title. Ticked items
+// can be hidden (the "hideDone" extra); a row under the list says how many
+// are done and shows or hides them. While editing, every item is shown.
 export function renderChecklist(card, item, { editing = false } = {}) {
   const { title, entries } = item.data;
   const head = card.querySelector(".checklist-head");
   const list = card.querySelector(".checklist-entries");
+  const doneToggle = card.querySelector(".entry-done-toggle");
   const oldTops = new Map([...list.children].map((row) => [row.dataset.entryId, row.offsetTop]));
+  const done = entries.filter((entry) => entry.done).length;
+  const hideDone = !editing && item.data.style?.hideDone === true;
 
   if (editing) {
     const input = entryEditor("checklist-title-editor", title, "Checklist title", 100);
@@ -351,11 +369,25 @@ export function renderChecklist(card, item, { editing = false } = {}) {
     head.replaceChildren(input);
     head.hidden = false;
   } else {
-    head.textContent = title;
+    head.replaceChildren(el("span", "checklist-title", title));
+
+    if (entries.length) {
+      const progress = el("span", "checklist-progress", `${done}/${entries.length}`);
+      progress.setAttribute("aria-label", `${done} of ${entries.length} done`);
+      head.append(progress);
+    }
+
     head.hidden = !title;
   }
 
-  list.replaceChildren(...entries.map((entry) => {
+  if (doneToggle) {
+    doneToggle.hidden = editing || !done;
+    doneToggle.textContent = `${done} of ${entries.length} done · ${hideDone ? "Show" : "Hide"}`;
+    doneToggle.setAttribute("aria-label", hideDone ? `Show ${done} ticked items` : `Hide ${done} ticked items`);
+    doneToggle.setAttribute("aria-expanded", String(!hideDone));
+  }
+
+  list.replaceChildren(...entries.filter((entry) => !(hideDone && entry.done)).map((entry) => {
     const row = el("li", entry.done ? "entry is-done" : "entry");
     row.dataset.entryId = entry.id;
 
@@ -524,9 +556,12 @@ export function applyCardStyle(card, item) {
   styled.set(card, Object.keys(vars));
 }
 
+export const isLocked = (item) => item?.data?.locked === true;
+
 export function updateCardElement(card, item) {
   positionCard(card, item);
   applyCardStyle(card, item);
+  card.classList.toggle("is-locked", isLocked(item));
 
   const key = JSON.stringify(item.data);
 

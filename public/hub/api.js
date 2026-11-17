@@ -63,6 +63,7 @@ export const api = {
   createBoard: (board) => request("POST", "/boards", board),
   updateBoard: (id, changes, options) => request("PATCH", boardPath(id), changes, options),
   deleteBoard: (id) => request("DELETE", boardPath(id)),
+  copyBoard: (id, { into, x, y, z }) => request("POST", `${boardPath(id)}/copy`, { into, x, y, z }),
   saveChanges: (id, ops, options) => request("POST", `${boardPath(id)}/changes`, { ops }, options),
   uploadFile: (blob) => request("POST", "/files", blob),
   missingFiles: (ids) => request("POST", "/files/missing", { ids }),

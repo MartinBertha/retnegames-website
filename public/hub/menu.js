@@ -53,8 +53,10 @@ export class CardMenu {
   }
 
   // canPaste: there are copied cards; canvas: the empty-canvas menu;
-  // canLink: one card is selected, so a link to it can be copied.
-  open(x, y, { canPaste = false, canvas = false, canLink = false }) {
+  // canLink: one card is selected, so a link to it can be copied; locked:
+  // everything selected is locked; image / folder: one image or folder card is
+  // selected; canMove: there are other boards to move cards to.
+  open(x, y, { canPaste = false, canvas = false, canLink = false, locked = false, image = false, folder = false, canMove = false }) {
     const add = (item, action) => {
       item.addEventListener("click", () => {
         this.close();
@@ -89,12 +91,28 @@ export class CardMenu {
 
     const children = [];
 
+    if (image) {
+      children.push(
+        add(button("menu-item", "View full size"), { type: "view" }),
+        add(button("menu-item", "Edit caption"), { type: "caption" }),
+        separator()
+      );
+    }
+
     children.push(
       add(withHint("Copy", `${MOD}C`), { type: "copy" }),
       add(withHint("Cut", `${MOD}X`), { type: "cut" }),
       paste,
       add(withHint("Duplicate", `${MOD}D`), { type: "duplicate" })
     );
+
+    if (folder) {
+      children.push(add(button("menu-item", "Duplicate as a separate board"), { type: "copy-board" }));
+    }
+
+    if (canMove) {
+      children.push(add(button("menu-item", "Move to board…"), { type: "move" }));
+    }
 
     if (canLink) {
       children.push(add(button("menu-item", "Copy link to card"), { type: "link" }));
@@ -104,9 +122,14 @@ export class CardMenu {
       separator(),
       add(button("menu-item", "Bring to front"), { type: "front" }),
       add(button("menu-item", "Send to back"), { type: "back" }),
-      separator(),
-      add(button("menu-item menu-danger", "Delete"), { type: "delete" })
+      add(withHint(locked ? "Unlock" : "Lock", `${MOD}${MOD === "⌘" ? "⇧" : "Shift+"}L`), { type: locked ? "unlock" : "lock" }),
+      separator()
     );
+
+    const remove = add(withHint("Delete", "Del"), { type: "delete" });
+    remove.classList.add("menu-danger");
+    remove.disabled = locked;
+    children.push(remove);
 
     this.show(x, y, children);
   }

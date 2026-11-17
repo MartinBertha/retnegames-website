@@ -14,6 +14,7 @@ import {
   createCardElement,
   hasHubLink,
   invalidateCard,
+  isLocked,
   positionCard,
   updateCardElement
 } from "./cards.js";
@@ -177,6 +178,8 @@ export class BoardView {
 
       if (control.classList.contains("entry-check")) {
         this.toggleChecklistEntry(id, control.closest(".entry").dataset.entryId);
+      } else if (control.classList.contains("entry-done-toggle")) {
+        this.toggleHideDone(id);
       } else if (control.classList.contains("entry-add")) {
         if (this.editing?.id === id) {
           this.editing.addEntry?.();
@@ -790,7 +793,31 @@ export class BoardView {
       return;
     }
 
-    const ids = [...this.selected];
+    // Locked objects aren't deleted until they're unlocked.
+    const ids = [...this.selected].filter((id) => !isLocked(this.items.get(id)));
+    const kept = this.selected.size - ids.length;
+
+    if (kept) {
+      this.callbacks.onNotice?.(kept === 1
+        ? "A locked card wasn't deleted. Unlock it first (right-click > Unlock)."
+        : `${kept} locked cards weren't deleted. Unlock them first (right-click > Unlock).`);
+    }
+
+    if (!ids.length) {
+      return;
+    }
+
+    this.deleteIds(ids);
+  }
+
+  // Deletes these cards as one undo step (their lines stay, with ends free).
+  deleteIds(ids) {
+    ids = ids.filter((id) => this.items.has(id));
+
+    if (!ids.length || !this.boardId) {
+      return;
+    }
+
     const before = this.capture(ids);
     const folders = [...before.values()].filter((item) => item.type === "folder");
 
@@ -880,7 +907,12 @@ export class BoardView {
   }
 
   nudgeSelected(dx, dy) {
-    const ids = [...this.selected].filter((id) => this.items.has(id)).sort();
+    const ids = [...this.selected].filter((id) => this.items.has(id) && !isLocked(this.items.get(id))).sort();
+
+    if (!ids.length) {
+      return;
+    }
+
     const before = this.capture(ids);
     const moving = new Set(ids);
     const lines = [];
@@ -909,7 +941,7 @@ export class BoardView {
   // Arrow keys with snapping: the first selected card moves to the next grid
   // line in that direction; the others keep their layout.
   nudgeSelectedToGrid(dirX, dirY) {
-    const anchor = this.items.get([...this.selected].find((id) => this.items.has(id)));
+    const anchor = this.items.get([...this.selected].find((id) => this.items.has(id) && !isLocked(this.items.get(id))));
 
     if (anchor) {
       this.nudgeSelected(
@@ -936,7 +968,53 @@ export class BoardView {
     const before = this.capture([id]);
     item.data.entries = toggleEntry(item.data.entries, entryId);
     updateCardElement(this.elements.get(id), item);
+
+    // With ticked items hidden, a ticked one leaves the list: the card shrinks.
+    if (item.data.style?.hideDone) {
+      this.fitChecklist(id);
+    }
+
     this.commitChange(before);
+  }
+
+  // The "N of M done · Hide/Show" row under a checklist.
+  toggleHideDone(id) {
+    const item = this.items.get(id);
+
+    if (!item || item.type !== "checklist") {
+      return;
+    }
+
+    const before = this.capture([id]);
+    setExtra(item, "hideDone", !(item.data.style?.hideDone === true));
+    updateCardElement(this.elements.get(id), item);
+    this.fitChecklist(id);
+    this.commitChange(before);
+    this.notifyProperties();
+  }
+
+  // A checklist's height to fit what it shows: shorter once ticked items are
+  // hidden, taller when they show again (never below its minimum).
+  fitChecklist(id) {
+    const item = this.items.get(id);
+    const card = this.elements.get(id);
+
+    if (!item || !card || item.type !== "checklist") {
+      return;
+    }
+
+    card.style.height = "auto";
+    const natural = Math.ceil(card.offsetHeight);
+    card.style.height = `${item.h}px`;
+
+    const height = Math.min(MAX_CARD_SIZE, Math.max(CARD_TYPES.checklist.minH, natural));
+
+    if (height !== item.h) {
+      item.h = height;
+      this.snapGrownHeight(item);
+      positionCard(card, item);
+      this.refreshLines([id]);
+    }
   }
 
   zoomBy(factor) {
@@ -1334,9 +1412,10 @@ export class BoardView {
     return items.length && items.every((item) => item.type === items[0].type) ? items : [];
   }
 
-  // Tells the property column what is selected now (and so what to show).
+  // Tells the property column what is selected now (and so what to show: the
+  // properties when all are of one kind, Arrange for two or more cards).
   notifyProperties() {
-    this.callbacks.onProperties?.(this.propertyTargets());
+    this.callbacks.onProperties?.([...this.selected].map((id) => this.items.get(id)).filter(Boolean));
   }
 
   // Redraws a card after its style changed. A card being edited keeps its
@@ -1370,7 +1449,72 @@ export class BoardView {
   // "fill" | "alpha" | "text" | "extra" | "shape", set, prop, value } (see
   // properties.js).
   // One undo step; while a card is being edited it joins that edit's step.
+  // Lines up the selected cards (lines follow the cards they're attached to;
+  // locked ones stay): "left", "center", "right", "top", "middle", "bottom"
+  // align their edges or centres with the selection's; "distribute-x" and
+  // "distribute-y" (three or more) space them evenly, keeping the outer two.
+  arrangeSelected(action) {
+    this.finishEditing();
+
+    const items = [...this.selected]
+      .map((id) => this.items.get(id))
+      .filter((item) => item && item.type !== "connector" && !isLocked(item));
+
+    if (items.length < 2 || (action.startsWith("distribute") && items.length < 3)) {
+      return;
+    }
+
+    const ids = items.map((item) => item.id);
+    const before = this.capture(ids);
+    const left = Math.min(...items.map((item) => item.x));
+    const top = Math.min(...items.map((item) => item.y));
+    const right = Math.max(...items.map((item) => item.x + item.w));
+    const bottom = Math.max(...items.map((item) => item.y + item.h));
+
+    const spread = (axis, size, from, to) => {
+      const sorted = [...items].sort((a, b) => (a[axis] + a[size] / 2) - (b[axis] + b[size] / 2));
+      const gap = (to - from - sorted.reduce((sum, item) => sum + item[size], 0)) / (sorted.length - 1);
+      let at = from;
+
+      for (const item of sorted) {
+        item[axis] = clampCoordinate(at);
+        at += item[size] + gap;
+      }
+    };
+
+    if (action === "distribute-x") {
+      spread("x", "w", left, right);
+    } else if (action === "distribute-y") {
+      spread("y", "h", top, bottom);
+    } else {
+      for (const item of items) {
+        const place = {
+          left: () => { item.x = left; },
+          center: () => { item.x = clampCoordinate((left + right) / 2 - item.w / 2); },
+          right: () => { item.x = right - item.w; },
+          top: () => { item.y = top; },
+          middle: () => { item.y = clampCoordinate((top + bottom) / 2 - item.h / 2); },
+          bottom: () => { item.y = bottom - item.h; }
+        }[action];
+
+        place?.();
+      }
+    }
+
+    for (const item of items) {
+      positionCard(this.elements.get(item.id), item);
+    }
+
+    this.refreshLines(ids);
+    this.commitChange(before);
+  }
+
   applyProperty({ kind, set, prop, value }) {
+    if (kind === "arrange") {
+      this.arrangeSelected(value);
+      return;
+    }
+
     const targets = this.propertyTargets();
 
     if (!targets.length) {
@@ -1401,6 +1545,8 @@ export class BoardView {
 
       if (kind === "text") {
         this.fitContent(item.id);
+      } else if (kind === "extra" && prop === "hideDone" && this.editing?.id !== item.id) {
+        this.fitChecklist(item.id);
       }
     }
 
@@ -1429,7 +1575,17 @@ export class BoardView {
 
     this.finishEditing();
     this.menuPoint = this.viewport.toWorld(this.viewport.localPoint({ clientX, clientY }));
-    this.menu.open(clientX, clientY, { canPaste: Boolean(this.callbacks.canPaste?.()), canLink: items.length === 1 });
+
+    const single = items.length === 1 ? items[0] : null;
+
+    this.menu.open(clientX, clientY, {
+      canPaste: Boolean(this.callbacks.canPaste?.()),
+      canLink: Boolean(single),
+      locked: items.every(isLocked),
+      image: single?.type === "image",
+      folder: single?.type === "folder",
+      canMove: Boolean(this.callbacks.canMove?.())
+    });
   }
 
   // Right-click or long-press on empty canvas: Paste.
@@ -1453,6 +1609,16 @@ export class BoardView {
       this.callbacks.onClipboard?.(type, type === "paste" ? this.menuPoint : null);
     } else if (type === "link" && this.selected.size === 1) {
       this.callbacks.onCopyLink?.([...this.selected][0]);
+    } else if (type === "lock" || type === "unlock") {
+      this.setLockSelected(type === "lock");
+    } else if (type === "view" && this.selected.size === 1) {
+      this.callbacks.onViewImage?.([...this.selected][0]);
+    } else if (type === "caption" && this.selected.size === 1) {
+      this.startEditing([...this.selected][0]);
+    } else if (type === "move") {
+      this.callbacks.onMoveSelection?.();
+    } else if (type === "copy-board" && this.selected.size === 1) {
+      this.callbacks.onCopyBoard?.([...this.selected][0]);
     }
   }
 
@@ -1488,6 +1654,56 @@ export class BoardView {
   // Adds copies of cards, centred as a group on a world point and keeping their
   // layout; the group's corner snaps to the grid unless `free`. A folder card
   // copy opens the same board as the original.
+  //
+  // prepareCopies makes the copies without adding them (paste, and moving cards
+  // to another board): new ids (checklist items too), the group's corner on
+  // the grid unless `free`, stacked from z + 1, lines attached only to cards
+  // in the copy. With `avoid` (cards already there), a copy landing exactly on
+  // one of the same kind steps one grid cell down and right.
+  prepareCopies(cards, center, { free, avoid = null, z = 0 } = {}) {
+    const left = Math.min(...cards.map((item) => item.x));
+    const top = Math.min(...cards.map((item) => item.y));
+    const right = Math.max(...cards.map((item) => item.x + item.w));
+    const bottom = Math.max(...cards.map((item) => item.y + item.h));
+    let x = center.x - (right - left) / 2;
+    let y = center.y - (bottom - top) / 2;
+
+    if (this.snapping(free)) {
+      x = snapToGrid(x);
+      y = snapToGrid(y);
+    }
+
+    x = clampCoordinate(x);
+    y = clampCoordinate(y);
+
+    const existing = avoid ? [...avoid] : [];
+    const taken = (dx, dy) => cards.some((card) => existing.some((item) => (
+      item.type === card.type && item.x === card.x - left + dx && item.y === card.y - top + dy
+    )));
+
+    for (let step = 0; step < 50 && existing.length && taken(x, y); step++) {
+      x += GRID;
+      y += GRID;
+    }
+
+    const copies = cards.map((source) => {
+      const copy = structuredClone(snapshot(source));
+      copy.id = crypto.randomUUID();
+      copy.x = clampCoordinate(source.x - left + x);
+      copy.y = clampCoordinate(source.y - top + y);
+      copy.z = ++z;
+
+      if (copy.type === "checklist") {
+        copy.data.entries = copy.data.entries.map((entry) => ({ ...entry, id: crypto.randomUUID() }));
+      }
+
+      return copy;
+    });
+
+    this.retargetLines(copies, new Map(cards.map((source, index) => [source.id, copies[index].id])), x - left, y - top);
+    return copies;
+  }
+
   pasteCards(sources, center, { free } = {}) {
     if (!this.boardId || !sources.length) {
       return;
@@ -1510,48 +1726,7 @@ export class BoardView {
       return;
     }
 
-    const left = Math.min(...cards.map((item) => item.x));
-    const top = Math.min(...cards.map((item) => item.y));
-    const right = Math.max(...cards.map((item) => item.x + item.w));
-    const bottom = Math.max(...cards.map((item) => item.y + item.h));
-    let x = center.x - (right - left) / 2;
-    let y = center.y - (bottom - top) / 2;
-
-    if (this.snapping(free)) {
-      x = snapToGrid(x);
-      y = snapToGrid(y);
-    }
-
-    x = Math.round(x);
-    y = Math.round(y);
-
-    // Pasting again on the same spot steps down and right.
-    const taken = (dx, dy) => cards.some((card) => [...this.items.values()].some((item) => (
-      item.type === card.type && item.x === card.x - left + dx && item.y === card.y - top + dy
-    )));
-
-    for (let step = 0; step < 50 && taken(x, y); step++) {
-      x += GRID;
-      y += GRID;
-    }
-
-    let z = this.maxZ();
-    const copies = cards.map((source) => {
-      const copy = structuredClone(source);
-      copy.id = crypto.randomUUID();
-      copy.x = source.x - left + x;
-      copy.y = source.y - top + y;
-      copy.z = ++z;
-
-      if (copy.type === "checklist") {
-        copy.data.entries = copy.data.entries.map((entry) => ({ ...entry, id: crypto.randomUUID() }));
-      }
-
-      return copy;
-    });
-
-    this.retargetLines(copies, new Map(cards.map((source, index) => [source.id, copies[index].id])), x - left, y - top);
-
+    const copies = this.prepareCopies(cards, center, { free, avoid: this.items.values(), z: this.maxZ() });
     const created = copies.map((copy) => this.addItem(copy).id);
     this.syncConnectors();
 
@@ -1638,6 +1813,10 @@ export class BoardView {
 
     if (item.type === "folder" && !element?.closest(".folder-name")) {
       this.callbacks.onOpenBoard(item.data.childBoardId, item.data.name);
+    } else if (item.type === "image" && !element?.closest(".image-caption") && this.callbacks.onViewImage) {
+      // An image opens full size; its caption is edited by double-clicking
+      // the caption, or from the card menu.
+      this.callbacks.onViewImage(id);
     } else {
       this.startEditing(id, {
         focusEntryId: element?.closest(".entry")?.dataset.entryId,
@@ -1696,14 +1875,18 @@ export class BoardView {
     const card = target?.closest(".card");
     const id = card?.dataset.id;
 
+    const locked = id ? isLocked(this.items.get(id)) : false;
+
     if (event.button === 1 || this.spaceDown) {
       this.gesture = { type: "pan", start: point, last: point, moved: false };
-    } else if (id && target.closest(".resize-handle")) {
+    } else if (id && !locked && target.closest(".resize-handle")) {
       this.startResize(id, point);
-    } else if (id && target.closest(".connector-handle")) {
+    } else if (id && !locked && target.closest(".connector-handle")) {
       this.startEndpoint(id, target.closest(".connector-handle").dataset.end, event, point);
     } else if (id && target.closest(".entry-handle")) {
       this.startReorder(id, target.closest(".entry"), point);
+    } else if (id && locked) {
+      this.pressLocked(id, event, point);
     } else if (id) {
       this.pressCard(id, event, point);
     } else if (event.shiftKey && event.pointerType === "mouse") {
@@ -1819,7 +2002,78 @@ export class BoardView {
       gesture.element.remove();
     } else if (gesture.type === "pan" && !gesture.moved && gesture.onEmpty) {
       this.tapEmpty(gesture, event);
+    } else if (gesture.type === "pan" && !gesture.moved && gesture.locked) {
+      this.tapLocked(gesture, event);
     }
+  }
+
+  // A locked object is part of the background: dragging on it pans (with
+  // Shift and a mouse, draws a marquee), so the cards on it can be picked up.
+  // A tap still selects it, a double-tap edits it, a long press opens its menu.
+  pressLocked(id, event, point) {
+    if (event.shiftKey && event.pointerType === "mouse") {
+      this.startMarquee(point);
+      return;
+    }
+
+    const gesture = { type: "pan", start: point, last: point, moved: false, locked: { id, target: event.target } };
+
+    if (event.pointerType !== "mouse") {
+      const { clientX, clientY } = event;
+      gesture.longPress = setTimeout(() => {
+        if (this.gesture === gesture && !gesture.moved) {
+          this.gesture = null;
+          this.lastTap = null;
+          this.setSelection([id]);
+          this.openMenu(clientX, clientY);
+        }
+      }, LONG_PRESS_MS);
+    }
+
+    this.gesture = gesture;
+  }
+
+  tapLocked(gesture, event) {
+    const { id, target } = gesture.locked;
+    const additive = event.shiftKey;
+    let addedOnPress = false;
+
+    if (!this.items.has(id)) {
+      return;
+    }
+
+    if (!this.selected.has(id)) {
+      if (!additive) {
+        this.selected.clear();
+      }
+
+      this.selected.add(id);
+      addedOnPress = true;
+      this.renderSelection();
+    }
+
+    this.tapCard({ id, additive, addedOnPress, target, start: gesture.start }, event);
+  }
+
+  // Locks the selection, or unlocks it when it is all locked already.
+  toggleLockSelected() {
+    const items = [...this.selected].map((id) => this.items.get(id)).filter(Boolean);
+
+    if (items.length) {
+      this.setLockSelected(!items.every(isLocked));
+    }
+  }
+
+  // Lock or unlock the selected objects (one undo step).
+  setLockSelected(locked) {
+    this.changeSelected((item) => {
+      if (locked) {
+        item.data.locked = true;
+      } else {
+        delete item.data.locked;
+      }
+    });
+    this.renderSelection();
   }
 
   // Ends whatever is in progress, keeping moves and resizes already made.
@@ -1934,7 +2188,8 @@ export class BoardView {
 
   // Dragging a section also moves the cards (and lines) whose centre is inside it.
   startDrag(gesture) {
-    const ids = new Set([...this.selected].filter((id) => this.items.has(id)));
+    // Locked objects stay where they are, even when selected or in a section.
+    const ids = new Set([...this.selected].filter((id) => this.items.has(id) && !isLocked(this.items.get(id))));
     const chosen = new Set(ids);
 
     for (const id of [...ids]) {
@@ -1950,6 +2205,7 @@ export class BoardView {
 
         if (
           other !== section
+          && !isLocked(other)
           && cx >= section.x && cx <= section.x + section.w
           && cy >= section.y && cy <= section.y + section.h
         ) {
@@ -2187,7 +2443,8 @@ export class BoardView {
         inside = item.x < to.x && item.x + item.w > from.x && item.y < to.y && item.y + item.h > from.y;
       }
 
-      if (inside) {
+      // Locked objects are part of the background: a marquee leaves them out.
+      if (inside && !isLocked(item)) {
         selected.add(item.id);
       }
     }
@@ -2266,10 +2523,13 @@ export class BoardView {
         z: () => (event.shiftKey ? this.redo() : this.undo()),
         y: () => this.redo(),
         d: () => this.duplicateSelected(),
-        a: () => this.setSelection([...this.items.keys()])
+        // Locked objects are background: Select all leaves them out.
+        a: () => this.setSelection([...this.items.values()].filter((item) => !isLocked(item)).map((item) => item.id)),
+        // Ctrl/Cmd+Shift+L (Ctrl+L alone stays the browser's).
+        l: () => this.toggleLockSelected()
       }[letter];
 
-      if (action && (letter !== "y" || event.ctrlKey)) {
+      if (action && (letter !== "y" || event.ctrlKey) && (letter !== "l" || event.shiftKey)) {
         event.preventDefault();
         action();
       }

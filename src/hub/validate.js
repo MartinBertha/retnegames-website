@@ -41,7 +41,8 @@ export const STYLE_RULES = {
     sets: {
       title: { props: ["color", "font", "size", "bold", "italic"] },
       items: { props: ["color", "font", "size", "bold", "italic", "strike"] }
-    }
+    },
+    extras: { hideDone: "bool" }
   },
   image: {
     alpha: true,
@@ -438,6 +439,17 @@ export function validateItem(raw) {
 
   if (style) {
     data.style = style;
+  }
+
+  // A locked object can't be moved, resized or deleted until it's unlocked.
+  if (raw.data.locked != null) {
+    if (typeof raw.data.locked !== "boolean") {
+      invalid("Invalid lock.");
+    }
+
+    if (raw.data.locked) {
+      data.locked = true;
+    }
   }
 
   const dataJson = JSON.stringify(data);

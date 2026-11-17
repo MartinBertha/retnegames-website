@@ -909,10 +909,55 @@ body.is-placing * {
   overflow-wrap: anywhere;
 }
 
+.checklist-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.checklist-head[hidden] {
+  display: none;
+}
+
+.checklist-title {
+  flex: 1;
+  min-width: 0;
+}
+
+/* "2/5": how many items are ticked. */
+.checklist-progress {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .checklist-entries {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* "3 of 5 done · Hide": shows or hides the ticked items. */
+.entry-done-toggle {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 2px;
+  border: 0;
+  border-radius: var(--radius-small);
+  padding: 2px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.entry-done-toggle:hover {
+  color: var(--text);
 }
 
 .entry {
@@ -1753,6 +1798,57 @@ body.is-placing * {
   }
 }
 
+/* ---- Formatting in notes (format.js): headings, bold, italic, strike, code ---- */
+
+.note-heading {
+  display: block;
+  margin: 0.1em 0 0.15em;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+.note-h1 {
+  font-size: 1.45em;
+}
+
+.note-h2 {
+  font-size: 1.25em;
+}
+
+.note-h3 {
+  font-size: 1.08em;
+}
+
+.note-text-inner code,
+.note-line code {
+  border-radius: var(--radius-small);
+  padding: 0 0.25em;
+  background: color-mix(in srgb, currentColor 13%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* ---- Locked objects: no handles, and a small lock while selected ------------- */
+
+.card.is-locked .resize-handle,
+.card.is-locked .connector-handle {
+  display: none;
+}
+
+.card.is-locked.is-selected::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  top: calc(4px / var(--zoom, 1));
+  right: calc(4px / var(--zoom, 1));
+  width: calc(18px / var(--zoom, 1));
+  height: calc(18px / var(--zoom, 1));
+  border-radius: 50%;
+  background: var(--focus) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23111' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6' y='11' width='12' height='9' rx='1.5'/%3E%3Cpath d='M9 11V8a3 3 0 0 1 6 0v3'/%3E%3C/svg%3E") center / 64% no-repeat;
+  pointer-events: none;
+}
+
 /* ---- Links into the hub, and a card being shown ------------------------------ */
 
 .card a.hub-link {
@@ -1777,6 +1873,143 @@ body.is-placing * {
   100% {
     box-shadow: 0 0 0 calc(6px / var(--zoom, 1)) transparent;
   }
+}
+
+/* ---- Image viewer ----------------------------------------------------------------- */
+
+.viewer {
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  background: rgba(8, 8, 7, 0.94);
+  color: #f2f0e9;
+}
+
+.viewer::backdrop {
+  background: transparent;
+}
+
+.viewer-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: zoom-in;
+}
+
+.viewer-stage.is-zoomed {
+  cursor: grab;
+}
+
+.viewer-stage.is-zoomed:active {
+  cursor: grabbing;
+}
+
+.viewer-image {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  transform-origin: center;
+  opacity: 0;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.viewer-image.is-ready {
+  opacity: 1;
+}
+
+.viewer-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  pointer-events: none;
+}
+
+.viewer-bar > * {
+  pointer-events: auto;
+}
+
+.viewer-top {
+  top: 0;
+  background: linear-gradient(rgba(8, 8, 7, 0.75), transparent);
+}
+
+.viewer-bottom {
+  bottom: 0;
+  justify-content: center;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(8, 8, 7, 0.75));
+}
+
+.viewer-count {
+  flex: none;
+  color: rgba(242, 240, 233, 0.7);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer-caption {
+  flex: 1;
+  min-width: 0;
+  margin: 0 8px;
+  overflow: hidden;
+  font-size: 0.95rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-button,
+.viewer-level {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0 8px;
+  background: rgba(242, 240, 233, 0.08);
+  color: inherit;
+  cursor: pointer;
+}
+
+.viewer-button:hover,
+.viewer-level:hover {
+  background: rgba(242, 240, 233, 0.18);
+}
+
+.viewer-button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.viewer-level {
+  min-width: 64px;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer-bottom .viewer-button:first-child {
+  margin-right: auto;
+}
+
+.viewer-bottom .viewer-button:last-child {
+  margin-left: auto;
 }
 
 /* ---- Go to (search) ------------------------------------------------------------ */
@@ -2168,6 +2401,22 @@ body.is-placing * {
   color: var(--text);
   font-size: 0.9rem;
   transform: translateX(-50%);
+}
+
+.toast-action {
+  margin-left: 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-small);
+  padding: 2px 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  background: var(--hover-strong);
 }
 
 .toast[data-tone="error"] {

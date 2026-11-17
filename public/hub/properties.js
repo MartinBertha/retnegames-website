@@ -68,7 +68,16 @@ const ICONS = {
   "dash-dashed": "M3 12h18",
   "dash-dotted": "M3 12h18",
   "corners-square": "M5 20V5h15",
-  "corners-rounded": "M5 20v-9a6 6 0 0 1 6-6h9"
+  "corners-rounded": "M5 20v-9a6 6 0 0 1 6-6h9",
+  hideDone: "M4 5h3v3H4zM10 6.5h10M4 11h3v3H4zM10 12.5h10M4 18l1.5 1.5L8 17M11 18.5h3",
+  "align-left": "M4 3v18M8 7h12M8 15h7",
+  "align-center": "M12 3v18M6 7h12M8 15h8",
+  "align-right": "M20 3v18M4 7h12M9 15h7",
+  "align-top": "M3 4h18M7 8v12M15 8v7",
+  "align-middle": "M3 12h18M7 6v12M15 8v8",
+  "align-bottom": "M3 20h18M7 4v12M15 9v7",
+  "distribute-x": "M4 3v18M20 3v18M9 8h6v8H9z",
+  "distribute-y": "M3 4h18M3 20h18M8 9h8v6H8z"
 };
 
 function el(tag, className, text) {
@@ -469,19 +478,25 @@ export class PropertyBar {
     element.addEventListener("mousedown", keepFocus);
   }
 
-  // Shows the bar for these selected items, if they are all of one kind.
+  // Shows the bar for the selected items: their properties if they are all of
+  // one kind, and Arrange (align, distribute) for two or more cards.
   show(items) {
-    const type = items.length && items.every((item) => item.type === items[0].type) ? items[0].type : null;
+    const same = items.length && items.every((item) => item.type === items[0].type) ? items[0].type : null;
+    const type = same && OBJECT_STYLES[same] ? same : null;
+    const arrange = items.filter((item) => item.type !== "connector").length >= 2;
 
-    if (!type || !OBJECT_STYLES[type]) {
+    if (!type && !arrange) {
       this.hide();
       return;
     }
 
     this.menu.close();
 
-    if (type !== this.type) {
-      this.build(type);
+    const key = `${type}|${arrange}`;
+
+    if (key !== this.key) {
+      this.build(type, arrange);
+      this.key = key;
     }
 
     this.element.hidden = false;
@@ -503,6 +518,7 @@ export class PropertyBar {
     this.element.hidden = true;
     this.element.parentElement?.classList.remove("has-properties");
     this.type = null;
+    this.key = null;
     this.controls = [];
     this.element.replaceChildren();
   }
@@ -669,13 +685,77 @@ export class PropertyBar {
     return control;
   }
 
-  build(type) {
-    const spec = OBJECT_STYLES[type];
+  // A button with a drawing that opens a menu of actions (Align, Distribute):
+  // it shows no current value. Picks go to onChange({ kind: "arrange", value }).
+  actions({ label, face, options }) {
+    const button = el("button", "prop-choice");
+    const holder = el("span", "prop-face");
+
+    button.type = "button";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    holder.append(icon(face));
+    button.append(holder);
+    this.menu.bind(button, () => ({
+      label,
+      options,
+      value: null,
+      layout: "list",
+      pick: (value) => this.onChange({ kind: "arrange", value })
+    }));
+
+    return { element: button, kind: "choice", sync() {} };
+  }
+
+  // Align and Distribute, for two or more cards of any kinds.
+  arrangeRows() {
+    const option = (value, name) => ({ value, name, content: () => icon(value.startsWith("distribute") ? value : `align-${value}`) });
+    const align = this.actions({
+      label: "Align",
+      face: "align-left",
+      options: [
+        option("left", "Left edges"),
+        option("center", "Centres (across)"),
+        option("right", "Right edges"),
+        option("top", "Top edges"),
+        option("middle", "Middles (down)"),
+        option("bottom", "Bottom edges")
+      ]
+    });
+    const distribute = this.actions({
+      label: "Distribute evenly",
+      face: "distribute-x",
+      options: [option("distribute-x", "Across"), option("distribute-y", "Down")]
+    });
+
+    // Spacing evenly needs three or more cards.
+    distribute.sync = (items) => {
+      distribute.line.hidden = items.filter((item) => item.type !== "connector").length < 3;
+    };
+
+    return [[align], [distribute]];
+  }
+
+  build(type, arrange = false) {
     const groups = [];
-    const top = [];
 
     this.type = type;
     this.controls = [];
+
+    if (type) {
+      this.typeGroups(type, groups);
+    }
+
+    if (arrange) {
+      groups.push({ title: "Arrange", rows: this.arrangeRows() });
+    }
+
+    this.render(groups);
+  }
+
+  typeGroups(type, groups) {
+    const spec = OBJECT_STYLES[type];
+    const top = [];
 
     if (spec.fill) {
       top.push([this.colour({
@@ -737,7 +817,9 @@ export class PropertyBar {
     for (const set of spec.sets) {
       groups.push({ title: set.label, rows: this.textRows(set) });
     }
+  }
 
+  render(groups) {
     const nodes = groups.map(({ title, rows }) => {
       const group = el("section", "prop-group");
       group.setAttribute("aria-label", title);

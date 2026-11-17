@@ -15,7 +15,7 @@ import { createBackup, getBackup, listBackups, restoreBackup } from "./backups.j
 import { getFile, missingFiles, uploadFile } from "./files.js";
 import { boardsToDelete, boardsToRestore, hasLiveLink, loadGraph, reachable } from "./folders.js";
 import { searchIndex } from "./search.js";
-import { exportAll, importExport } from "./transfer.js";
+import { exportAll, importData, importExport } from "./transfer.js";
 import { listTrash } from "./trash.js";
 import { cleanName, isPlainObject, isUuid, validateItem } from "./validate.js";
 
@@ -322,6 +322,98 @@ async function deleteBoard({ env, params }) {
 
   await env.DB.batch(statements);
   return json({ ok: true });
+}
+
+const COORDINATE_LIMIT = 1_000_000;
+const Z_LIMIT = 1_000_000_000;
+
+// POST /boards/:id/copy { into, x, y, z }: copies a board, with the boards
+// inside it (by home) and all their cards, as a new board "<name> copy" whose
+// folder card goes on `into` at x, y, z. `into` must hold a folder card that
+// opens the board, so the copy can't end up inside itself. Folder cards
+// inside that open boards outside it keep opening them. Images are shared
+// (the same files). Nothing that exists is changed.
+async function copyBoard({ request, env, params }) {
+  const id = boardIdParam(params[0]);
+  const body = await readJson(request, MAX_SMALL_BODY_BYTES);
+
+  if (
+    !isPlainObject(body)
+    || !isUuid(body.into)
+    || !Number.isSafeInteger(body.z) || Math.abs(body.z) > Z_LIMIT
+  ) {
+    throw new HttpError(400, "Invalid request.");
+  }
+
+  const x = viewNumber(body.x, -COORDINATE_LIMIT, COORDINATE_LIMIT);
+  const y = viewNumber(body.y, -COORDINATE_LIMIT, COORDINATE_LIMIT);
+
+  const [linkResult, treeResult] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT 1 AS found FROM items
+       WHERE board_id = ?1 AND type = 'folder' AND deleted_at IS NULL
+         AND json_extract(data, '$.childBoardId') = ?2
+       LIMIT 1`
+    ).bind(body.into, id),
+    env.DB.prepare(
+      `WITH RECURSIVE tree(id, depth) AS (
+         SELECT id, 0 FROM boards WHERE id = ?1 AND deleted_at IS NULL
+         UNION
+         SELECT boards.id, tree.depth + 1 FROM boards JOIN tree ON boards.parent_id = tree.id
+         WHERE boards.deleted_at IS NULL AND tree.depth < 1000
+       )
+       SELECT boards.id, boards.parent_id, boards.name, boards.view_x, boards.view_y, boards.view_zoom
+       FROM boards JOIN tree ON tree.id = boards.id`
+    ).bind(id)
+  ]);
+
+  if (!treeResult.results.length) {
+    throw new HttpError(404, "Board not found.");
+  }
+
+  if (!linkResult.results.length) {
+    throw new HttpError(400, "Copy a board from a folder card that opens it.");
+  }
+
+  const boardIds = treeResult.results.map((row) => row.id);
+  const { results: itemRows } = await env.DB.prepare(
+    `SELECT id, board_id, type, x, y, w, h, z, color, data FROM items
+     WHERE deleted_at IS NULL AND board_id IN (SELECT value FROM json_each(?1))
+     ORDER BY board_id, z, id`
+  ).bind(JSON.stringify(boardIds)).all();
+
+  const items = itemRows.map((row) => ({ ...toItem(row), boardId: row.board_id }));
+  const inside = new Set(boardIds);
+  const outside = [...new Set(
+    items.filter((item) => item.type === "folder" && !inside.has(item.data?.childBoardId)).map((item) => item.data.childBoardId)
+  )];
+  const { results: liveOutside } = await env.DB.prepare(
+    "SELECT id FROM boards WHERE deleted_at IS NULL AND id IN (SELECT value FROM json_each(?1))"
+  ).bind(JSON.stringify(outside)).all();
+
+  const root = treeResult.results.find((row) => row.id === id);
+  const exported = {
+    format: "retne-hub-export",
+    version: 1,
+    boards: treeResult.results.map((row) => ({
+      id: row.id,
+      parentId: row.id === id ? null : row.parent_id,
+      name: row.name,
+      viewX: row.view_x,
+      viewY: row.view_y,
+      viewZoom: row.view_zoom
+    })),
+    items
+  };
+
+  const result = await importData(env, exported, {
+    name: `${root.name.slice(0, 95)} copy`,
+    into: body.into,
+    place: { x, y, z: body.z },
+    sharedLinks: new Set(liveOutside.map((row) => row.id))
+  });
+
+  return json(result, 201);
 }
 
 function parseOps(body) {
@@ -667,6 +759,27 @@ async function folderStatements(env, { boardId, upserts, deletedRows, existing, 
     statements.push(setDeletedStatement(env, doomed, now));
   }
 
+  // A folder card deleted while other cards still open its board: when none
+  // of them is on the board's home any more (it was moved to another board),
+  // the board's home becomes a board that has one, so its path stays right.
+  for (const row of deletedFolders) {
+    const childBoardId = parseJson(row.data)?.childBoardId;
+    const child = graph.boards.get(childBoardId);
+
+    if (!child || child.deletedAt !== null || doomed.has(childBoardId) || rehomed.has(childBoardId)) {
+      continue;
+    }
+
+    const remaining = links.filter((link) => link.child === childBoardId && graph.boards.get(link.boardId)?.deletedAt === null);
+
+    if (remaining.length && !remaining.some((link) => link.boardId === child.parentId)) {
+      rehomed.add(childBoardId);
+      statements.push(env.DB.prepare(
+        "UPDATE boards SET parent_id = ?1, updated_at = ?2 WHERE id = ?3"
+      ).bind(remaining[0].boardId, now, childBoardId));
+    }
+  }
+
   return statements;
 }
 
@@ -675,6 +788,7 @@ const ROUTES = [
   { pattern: /^\/boards\/([^/]+)$/, methods: { GET: getBoard, PATCH: updateBoard, DELETE: deleteBoard } },
   { pattern: /^\/boards\/([^/]+)\/rev$/, methods: { GET: getBoardRev } },
   { pattern: /^\/boards\/([^/]+)\/changes$/, methods: { POST: applyChanges } },
+  { pattern: /^\/boards\/([^/]+)\/copy$/, methods: { POST: copyBoard } },
   { pattern: /^\/files$/, methods: { POST: uploadFile } },
   { pattern: /^\/files\/missing$/, methods: { POST: missingFiles } },
   { pattern: /^\/files\/([^/]+)$/, methods: { GET: getFile } },
