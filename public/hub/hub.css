@@ -785,10 +785,11 @@ body.is-placing * {
   opacity: 0.85;
 }
 
-/* A colour tints the icon. */
+/* A colour fills the icon with exactly the colour a note of that colour has,
+   with a slightly stronger outline of the same colour so it stands out. */
 .card-folder[data-color] .folder-icon {
-  fill: color-mix(in srgb, var(--card-bg), var(--mix-contrast) 25%);
-  stroke: color-mix(in srgb, var(--card-bg), var(--mix-contrast) 50%);
+  fill: var(--card-bg);
+  stroke: color-mix(in srgb, var(--card-bg), var(--mix-contrast) 22%);
   stroke-width: 2;
   opacity: 1;
 }
