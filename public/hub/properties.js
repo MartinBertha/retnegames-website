@@ -1,11 +1,17 @@
-// The property bar (docs/hub-spec.md, section 6): shown over the left edge of
-// the canvas (a strip above the toolbar on phones) while one or more objects
-// of the same kind are selected, with the properties that kind offers
-// (styles.js): fill, opacity, and the style of each piece of text. A control
-// shows the value all selected objects share, or nothing when they differ.
-// Choices go to onChange({ kind, set, prop, value }); the board applies them.
-// Colours open a grid of the 16 colours. Everything is built with
-// createElement; nothing is rendered from data as HTML.
+// The property column (docs/hub-spec.md, section 6): a narrow column attached
+// to the toolbar (a strip above the toolbar on phones), shown while one or more
+// objects of the same kind are selected, with the properties that kind offers
+// (styles.js): fill, opacity, and the style of each piece of text.
+//
+// Each property is one small button that shows what is selected now (a square
+// of the colour, "Aa" in the font, "M" for the size...), or a dash when the
+// selected objects differ. Resting the mouse on it, or clicking or tapping it,
+// opens a menu beside it with the choices for that one property; a colour
+// opens a grid of the 16 colours. One menu component serves every property, so
+// it is shared by all kinds of object. On/off properties (bold, italic...) are
+// plain buttons. Choices go to onChange({ kind, set, prop, value }); the board
+// applies them. Everything is built with createElement; nothing is rendered
+// from data as HTML.
 
 import {
   ALIGN_NAMES,
@@ -27,8 +33,16 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const MIXED = Symbol("mixed");
 const PHONE = window.matchMedia("(max-width: 680px)");
 const EDGE_GAP = 8;
+const MENU_GAP = 4;
+const GRID_COLUMNS = 4;
+// A mouse opens a menu once it has rested on a button for a moment (so moving
+// across the column doesn't flash menus) and closes it a moment after leaving
+// (so it can cross the gap into the menu).
+const HOVER_OPEN_MS = 150;
+const HOVER_CLOSE_MS = 250;
 
-// Small line drawings for the alignment buttons.
+// Small line drawings for the buttons that have no words. The thickness and
+// dash drawings are one line each, styled by their class (hub.css).
 const ICONS = {
   left: "M4 6h16M4 10h10M4 14h16M4 18h10",
   center: "M4 6h16M7 10h10M4 14h16M7 18h10",
@@ -41,7 +55,17 @@ const ICONS = {
   "arrow-none": "M4 12h16",
   "arrow-end": "M4 12h16M15 7l5 5-5 5",
   "arrow-start": "M20 12H4M9 7l-5 5 5 5",
-  "arrow-both": "M4 12h16M15 7l5 5-5 5M9 7l-5 5 5 5"
+  "arrow-both": "M4 12h16M15 7l5 5-5 5M9 7l-5 5 5 5",
+  "shape-straight": "M4 18L20 6",
+  "shape-elbow": "M4 18h8V6h8",
+  "thickness-thin": "M3 12h18",
+  "thickness-medium": "M3 12h18",
+  "thickness-thick": "M3 12h18",
+  "dash-solid": "M3 12h18",
+  "dash-dashed": "M3 12h18",
+  "dash-dotted": "M3 12h18",
+  "corners-square": "M5 20V5h15",
+  "corners-rounded": "M5 20v-9a6 6 0 0 1 6-6h9"
 };
 
 function el(tag, className, text) {
@@ -63,11 +87,23 @@ function icon(name) {
   const path = document.createElementNS(SVG_NS, "path");
 
   svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("class", "prop-icon");
+  svg.setAttribute("class", `prop-icon prop-icon-${name}`);
   svg.setAttribute("aria-hidden", "true");
   path.setAttribute("d", ICONS[name]);
   svg.append(path);
   return svg;
+}
+
+// A few letters in the button or menu ("Aa" in a font, "M" for a size).
+function glyph(text, className) {
+  return el("span", className ? `prop-glyph ${className}` : "prop-glyph", text);
+}
+
+// A square of colour: `colour` is any CSS colour (here a palette variable).
+function swatch(colour) {
+  const node = el("span", "swatch");
+  node.style.setProperty("--swatch", colour);
+  return node;
 }
 
 // The value every item has, or MIXED.
@@ -76,85 +112,48 @@ function shared(items, read) {
   return items.every((item) => read(item) === first) ? first : MIXED;
 }
 
-// A button that is on when the value is, one of a group (a choice of values).
-// showLabel puts the label in words beside the buttons (for choices whose
-// buttons don't say what they are for, like "100% 75% 50% 25%").
-function choice({ label, options, read, pick, showLabel = false }) {
-  const group = el("div", "prop-seg");
-  group.setAttribute("role", "radiogroup");
-  group.setAttribute("aria-label", label);
+// The 16 colours of a palette as menu choices: "tone" colours are card fills,
+// "ink" colours are for text and lines. null is the theme's own.
+const COLOUR_OPTIONS = {};
 
-  const buttons = options.map(({ value, name, content, className }) => {
-    const button = el("button", className ? `prop-button ${className}` : "prop-button");
+function colourOptions(palette) {
+  COLOUR_OPTIONS[palette] ??= [null, ...COLOR_KEYS].map((key) => ({
+    value: key,
+    name: key ? COLOR_NAMES[key] : "Default",
+    swatch: key ? `var(--${palette}-${key})` : (palette === "tone" ? "var(--card-bg)" : "var(--text)")
+  }));
 
-    button.type = "button";
-    button.setAttribute("role", "radio");
-    button.setAttribute("aria-label", name);
-    button.title = name;
-    button.dataset.value = String(value);
-
-    if (typeof content === "string") {
-      button.textContent = content;
-    } else {
-      button.append(content);
-    }
-
-    button.addEventListener("click", () => pick(value));
-    return button;
-  });
-
-  group.append(...buttons);
-
-  return {
-    element: group,
-    label: showLabel ? label : null,
-    sync(items) {
-      const value = shared(items, read);
-
-      for (const button of buttons) {
-        button.setAttribute("aria-checked", String(value !== MIXED && String(value) === button.dataset.value));
-      }
-    }
-  };
+  return COLOUR_OPTIONS[palette];
 }
 
-// An on/off button (bold, italic...): its text, or an icon in `content`.
-function toggle({ label, text, content, className = "", read, pick }) {
-  const button = el("button", `prop-button prop-toggle ${className}`, text);
-
-  if (content) {
-    button.append(content);
+// What a choice looks like on its button: its colour, its drawing or glyph, or
+// else its name.
+function faceOf(option) {
+  if (option.swatch) {
+    return swatch(option.swatch);
   }
 
-  button.type = "button";
-  button.title = label;
-  button.setAttribute("aria-label", label);
-  button.setAttribute("aria-pressed", "false");
-  button.addEventListener("click", () => pick(button.getAttribute("aria-pressed") !== "true"));
-
-  return {
-    element: button,
-    sync(items) {
-      const value = shared(items, read);
-      button.setAttribute("aria-pressed", value === MIXED ? "mixed" : String(value));
-    }
-  };
+  const content = option.content?.();
+  return content ?? el("span", "prop-face-text", option.name);
 }
 
-// Paints a swatch with one colour of a palette: "tone" colours are card fills,
-// "ink" colours are for text and lines. null is the theme's own.
-function paint(swatch, palette, key) {
-  const colour = key ? `var(--${palette}-${key})` : (palette === "tone" ? "var(--card-bg)" : "var(--text)");
-  swatch.style.setProperty("--swatch", colour);
-}
-
-// The grid of 16 colours, one at a time, next to the button that opened it.
-class ColorGrid {
-  constructor() {
-    this.element = el("div", "color-grid");
+// The menu that opens beside a property button. One instance serves every
+// button in the column: it lists the choices of the button that opened it,
+// marks the current one, and sends the pick back.
+class OptionMenu {
+  // panel: the column the menu opens beside.
+  constructor(panel) {
+    this.panel = panel;
+    this.element = el("div", "prop-menu-popup");
     this.element.hidden = true;
-    this.element.setAttribute("role", "radiogroup");
+    this.element.setAttribute("role", "menu");
     this.anchor = null;
+    // Pinned (clicked, tapped or opened with the keyboard): stays until a
+    // choice is made or something else is pressed, however the mouse moves.
+    this.pinned = false;
+    this.fromKeyboard = false;
+    this.openTimer = 0;
+    this.closeTimer = 0;
     document.body.append(this.element);
 
     document.addEventListener("pointerdown", (event) => {
@@ -163,16 +162,42 @@ class ColorGrid {
       }
     }, true);
 
-    this.element.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        this.close({ focusAnchor: true });
+    // Using the menu must not take focus from a field being edited, or
+    // editing would end.
+    this.element.addEventListener("pointerdown", (event) => event.preventDefault());
+    this.element.addEventListener("mousedown", (event) => event.preventDefault());
+
+    this.element.addEventListener("pointerenter", (event) => {
+      if (event.pointerType === "mouse") {
+        clearTimeout(this.closeTimer);
       }
     });
 
-    this.element.addEventListener("pointerdown", (event) => event.preventDefault());
-    this.element.addEventListener("mousedown", (event) => event.preventDefault());
+    this.element.addEventListener("pointerleave", (event) => {
+      if (event.pointerType === "mouse") {
+        this.closeSoon();
+      }
+    });
+
+    this.element.addEventListener("keydown", (event) => this.onKeyDown(event));
+
+    // Escape closes an open menu first (even one opened with the mouse, where
+    // focus never moved into it); the next Escape is the board's.
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && this.isOpen && !this.element.contains(event.target)) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.close();
+      }
+    }, true);
+
+    // Tabbing out of the menu closes it.
+    this.element.addEventListener("focusout", (event) => {
+      if (this.isOpen && !this.element.contains(event.relatedTarget) && event.relatedTarget !== this.anchor) {
+        this.close();
+      }
+    });
+
     window.addEventListener("resize", () => this.close());
     window.addEventListener("blur", () => this.close());
   }
@@ -181,48 +206,158 @@ class ColorGrid {
     return !this.element.hidden;
   }
 
-  // value: the colour key now (null: default), or MIXED; pick(key) chooses one.
-  open(anchor, { label, palette, value, pick }, { focus }) {
-    this.anchor = anchor;
-    anchor.setAttribute("aria-expanded", "true");
-    this.element.setAttribute("aria-label", label);
+  get choices() {
+    return [...this.element.querySelectorAll("[role='menuitemradio']")];
+  }
 
-    const swatches = [null, ...COLOR_KEYS].map((key) => {
-      const button = el("button", "swatch-button");
-      const name = key ? COLOR_NAMES[key] : "Default";
+  // Makes `button` open the menu (spec() gives its { label, options, value,
+  // layout, pick } as they are at that moment).
+  bind(button, spec) {
+    button.setAttribute("aria-haspopup", "menu");
+    button.setAttribute("aria-expanded", "false");
 
-      button.type = "button";
-      button.setAttribute("role", "radio");
-      button.setAttribute("aria-label", name);
-      button.setAttribute("aria-checked", String(value !== MIXED && value === key));
-      button.title = name;
-      paint(button, palette, key);
-      button.addEventListener("click", () => {
-        this.close({ focusAnchor: focus });
-        pick(key);
-      });
-      return button;
+    button.addEventListener("pointerenter", (event) => {
+      if (event.pointerType !== "mouse") {
+        return;
+      }
+
+      this.cancelTimers();
+
+      if (this.anchor !== button) {
+        // Moving from one button to the next swaps menus at once.
+        this.openTimer = setTimeout(() => this.open(button, spec()), this.isOpen ? 0 : HOVER_OPEN_MS);
+      }
     });
 
-    this.element.replaceChildren(...swatches);
-    this.element.hidden = false;
-    this.place(anchor);
+    button.addEventListener("pointerleave", (event) => {
+      if (event.pointerType === "mouse") {
+        clearTimeout(this.openTimer);
+        this.closeSoon();
+      }
+    });
 
-    if (focus) {
-      (swatches.find((button) => button.getAttribute("aria-checked") === "true") ?? swatches[0]).focus({ preventScroll: true });
+    button.addEventListener("click", (event) => {
+      // Enter or Space on a focused button (no pointer): move into the menu.
+      const keyboard = event.detail === 0;
+
+      this.cancelTimers();
+
+      if (this.anchor !== button) {
+        this.open(button, spec(), { pinned: true, keyboard });
+      } else if (this.pinned) {
+        this.close();
+      } else {
+        // Opened by resting the mouse on it: a click keeps it open.
+        this.pinned = true;
+        this.fromKeyboard = keyboard;
+
+        if (keyboard) {
+          this.focusChoice();
+        }
+      }
+    });
+
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        event.preventDefault();
+        this.cancelTimers();
+        this.open(button, spec(), { pinned: true, keyboard: true });
+      } else if (event.key === "Escape" && this.anchor === button) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.close();
+      }
+    });
+  }
+
+  cancelTimers() {
+    clearTimeout(this.openTimer);
+    clearTimeout(this.closeTimer);
+  }
+
+  closeSoon() {
+    clearTimeout(this.closeTimer);
+
+    if (this.isOpen && !this.pinned) {
+      this.closeTimer = setTimeout(() => this.close(), HOVER_CLOSE_MS);
     }
   }
 
-  // Beside the button on a desktop; above it on a phone, where the strip is
-  // along the bottom edge.
-  place(anchor) {
-    const { width, height } = this.element.getBoundingClientRect();
-    const rect = anchor.getBoundingClientRect();
-    let left = PHONE.matches ? rect.left : rect.right + EDGE_GAP;
-    let top = PHONE.matches ? rect.top - height - EDGE_GAP : rect.top;
+  // value: the current choice (or MIXED); pick(value) chooses one. layout is
+  // "grid" (colours) or "list" (a row per choice, with its name).
+  open(anchor, { label, options, value, layout, pick }, { pinned = false, keyboard = false } = {}) {
+    this.close();
+    this.cancelTimers();
+    this.anchor = anchor;
+    this.pinned = pinned;
+    this.fromKeyboard = keyboard;
+    anchor.setAttribute("aria-expanded", "true");
+    this.element.setAttribute("aria-label", label);
+    this.element.classList.toggle("is-grid", layout === "grid");
 
-    if (!PHONE.matches && left + width > window.innerWidth - EDGE_GAP) {
-      left = rect.left - width - EDGE_GAP;
+    const title = el("div", "prop-menu-title", label);
+    title.setAttribute("aria-hidden", "true");
+
+    const choices = options.map((option) => {
+      const button = el("button", layout === "grid" ? "swatch-button" : "prop-option");
+
+      button.type = "button";
+      button.setAttribute("role", "menuitemradio");
+      button.setAttribute("aria-label", option.name);
+      button.setAttribute("aria-checked", String(value !== MIXED && value === option.value));
+      button.title = option.name;
+
+      if (layout === "grid") {
+        button.style.setProperty("--swatch", option.swatch);
+      } else {
+        const content = option.content?.();
+
+        if (content) {
+          const face = el("span", "prop-option-face");
+          face.append(content);
+          button.append(face);
+        }
+
+        button.append(el("span", "prop-option-name", option.name));
+      }
+
+      button.addEventListener("click", () => {
+        const refocus = this.fromKeyboard;
+        this.close({ focusAnchor: refocus });
+        pick(option.value);
+      });
+
+      return button;
+    });
+
+    this.element.replaceChildren(title, ...choices);
+    this.element.hidden = false;
+    this.place();
+
+    if (keyboard) {
+      this.focusChoice();
+    }
+  }
+
+  focusChoice() {
+    const choices = this.choices;
+    (choices.find((button) => button.getAttribute("aria-checked") === "true") ?? choices[0])?.focus({ preventScroll: true });
+  }
+
+  // Beside the column on a desktop, level with the button; above the button on
+  // a phone, where the strip is along the bottom edge.
+  place() {
+    const { width, height } = this.element.getBoundingClientRect();
+    const rect = this.anchor.getBoundingClientRect();
+    let left;
+    let top;
+
+    if (PHONE.matches) {
+      left = rect.left;
+      top = rect.top - height - EDGE_GAP;
+    } else {
+      left = this.panel.getBoundingClientRect().right + MENU_GAP;
+      top = rect.top;
     }
 
     left = Math.max(EDGE_GAP, Math.min(left, window.innerWidth - width - EDGE_GAP));
@@ -231,7 +366,32 @@ class ColorGrid {
     this.element.style.top = `${top}px`;
   }
 
+  // Arrow keys move between the choices; Escape or Tab leave the menu.
+  onKeyDown(event) {
+    const choices = this.choices;
+    const index = choices.indexOf(document.activeElement);
+    const grid = this.element.classList.contains("is-grid");
+    const down = grid ? GRID_COLUMNS : 1;
+    const steps = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -down, ArrowDown: down };
+
+    if (event.key === "Escape" || event.key === "Tab") {
+      event.preventDefault();
+      event.stopPropagation();
+      this.close({ focusAnchor: true });
+    } else if (event.key in steps && index >= 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      choices[Math.max(0, Math.min(index + steps[event.key], choices.length - 1))].focus({ preventScroll: true });
+    } else if ((event.key === "Home" || event.key === "End") && choices.length) {
+      event.preventDefault();
+      event.stopPropagation();
+      choices[event.key === "Home" ? 0 : choices.length - 1].focus({ preventScroll: true });
+    }
+  }
+
   close({ focusAnchor = false } = {}) {
+    this.cancelTimers();
+
     if (!this.isOpen) {
       return;
     }
@@ -245,17 +405,44 @@ class ColorGrid {
     }
 
     this.anchor = null;
+    this.pinned = false;
+    this.fromKeyboard = false;
   }
+}
+
+// An on/off button (bold, italic...): its text, or an icon in `content`.
+function toggle({ label, text, content, className = "", read, pick }) {
+  const button = el("button", `prop-toggle ${className}`, text);
+
+  if (content) {
+    button.append(content);
+  }
+
+  button.type = "button";
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.setAttribute("aria-pressed", "false");
+  button.addEventListener("click", () => pick(button.getAttribute("aria-pressed") !== "true"));
+
+  return {
+    element: button,
+    kind: "toggle",
+    sync(items) {
+      const value = shared(items, read);
+      button.setAttribute("aria-pressed", value === MIXED ? "mixed" : String(value));
+    }
+  };
 }
 
 export class PropertyBar {
   // element: the (hidden) container; onChange({ kind, set, prop, value }) gets
   // each choice: kind is "fill" (the colour), "alpha", "text" (a property of
-  // one piece of text) or "shape" (a line's type).
+  // one piece of text), "extra" (one of an object's own properties) or
+  // "shape" (a line's type).
   constructor(element, onChange) {
     this.element = element;
     this.onChange = onChange;
-    this.grid = new ColorGrid();
+    this.menu = new OptionMenu(element);
     this.type = null;
     this.controls = [];
 
@@ -280,7 +467,7 @@ export class PropertyBar {
       return;
     }
 
-    this.grid.close();
+    this.menu.close();
 
     if (type !== this.type) {
       this.build(type);
@@ -301,7 +488,7 @@ export class PropertyBar {
   }
 
   hide() {
-    this.grid.close();
+    this.menu.close();
     this.element.hidden = true;
     this.element.parentElement?.classList.remove("has-properties");
     this.type = null;
@@ -309,40 +496,44 @@ export class PropertyBar {
     this.element.replaceChildren();
   }
 
-  colour({ label, palette, read, pick }) {
-    const button = el("button", "prop-colour");
-    const swatch = el("span", "swatch");
+  // A button showing the current choice of one property, and opening the menu
+  // of choices. options: [{ value, name, content?, swatch? }] where `content`
+  // makes the drawing or glyph for the button and the menu (else the name is
+  // shown) and `swatch` is a colour. The layout is a grid for colours.
+  choose({ label, options, read, pick, layout = "list" }) {
+    const button = el("button", "prop-choice");
+    const face = el("span", "prop-face");
     let value = null;
 
     button.type = "button";
-    button.setAttribute("aria-haspopup", "true");
-    button.setAttribute("aria-expanded", "false");
-    button.append(swatch, el("span", "prop-colour-label", label));
-    button.addEventListener("click", (event) => {
-      if (this.grid.anchor === button) {
-        this.grid.close();
-      } else {
-        this.grid.close();
-        // Opened with the keyboard (no pointer): move into the grid.
-        this.grid.open(button, { label, palette, value, pick }, { focus: event.detail === 0 });
-      }
-    });
+    button.append(face);
+    this.menu.bind(button, () => ({ label, options, value, layout, pick }));
 
     return {
       element: button,
+      kind: "choice",
       sync(items) {
         value = shared(items, read);
-        swatch.classList.toggle("is-mixed", value === MIXED);
 
-        if (value !== MIXED) {
-          paint(swatch, palette, value);
+        const option = value === MIXED ? null : options.find((candidate) => candidate.value === value);
+        const name = option ? option.name : "mixed";
+
+        if (option) {
+          face.replaceChildren(faceOf(option));
+        } else if (layout === "grid") {
+          face.replaceChildren(el("span", "swatch is-mixed"));
+        } else {
+          face.replaceChildren(el("span", "prop-face-text", "–"));
         }
 
-        const name = value === MIXED ? "mixed" : (value ? COLOR_NAMES[value] : "default");
         button.title = `${label}: ${name}`;
         button.setAttribute("aria-label", `${label}: ${name}`);
       }
     };
+  }
+
+  colour({ label, palette, read, pick }) {
+    return this.choose({ label, options: colourOptions(palette), read, pick, layout: "grid" });
   }
 
   // The controls for one piece of text, in rows.
@@ -353,22 +544,26 @@ export class PropertyBar {
     const rows = [];
 
     if (has("color")) {
-      rows.push([this.colour({ label: "Text colour", palette: "ink", read: read("color"), pick: send("color") })]);
+      rows.push([this.colour({ label: `${set.label} colour`, palette: "ink", read: read("color"), pick: send("color") })]);
     }
 
     if (has("font")) {
-      rows.push([choice({
+      rows.push([this.choose({
         label: `${set.label} font`,
-        options: Object.entries(FONT_NAMES).map(([value, name]) => ({ value, name, content: name, className: `prop-font-${value}` })),
+        options: Object.entries(FONT_NAMES).map(([value, name]) => ({
+          value,
+          name,
+          content: () => glyph("Aa", `prop-font-${value}`)
+        })),
         read: read("font"),
         pick: send("font")
       })]);
     }
 
     if (has("size")) {
-      rows.push([choice({
+      rows.push([this.choose({
         label: `${set.label} size`,
-        options: sizesOf(set).map((value) => ({ value, name: SIZE_NAMES[value], content: value.toUpperCase() })),
+        options: sizesOf(set).map((value) => ({ value, name: SIZE_NAMES[value], content: () => glyph(value.toUpperCase()) })),
         read: read("size"),
         pick: send("size")
       })]);
@@ -388,30 +583,30 @@ export class PropertyBar {
       }
     }
 
-    if (has("align")) {
-      style.push(choice({
-        label: `${set.label} alignment`,
-        options: Object.entries(ALIGN_NAMES).map(([value, name]) => ({ value, name, content: icon(value) })),
-        read: read("align"),
-        pick: send("align")
-      }));
-    }
-
     if (style.length) {
       rows.push(style);
     }
 
+    if (has("align")) {
+      rows.push([this.choose({
+        label: `${set.label} alignment`,
+        options: Object.entries(ALIGN_NAMES).map(([value, name]) => ({ value, name, content: () => icon(value) })),
+        read: read("align"),
+        pick: send("align")
+      })]);
+    }
+
     if (has("valign")) {
-      rows.push([choice({
+      rows.push([this.choose({
         label: `${set.label} vertical alignment`,
-        options: Object.entries(VALIGN_NAMES).map(([value, name]) => ({ value, name, content: icon(value) })),
+        options: Object.entries(VALIGN_NAMES).map(([value, name]) => ({ value, name, content: () => icon(value) })),
         read: read("valign"),
         pick: send("valign")
       })]);
     }
 
     if (has("address")) {
-      rows.push([toggle({ label: "Show address line", text: "Address line", read: read("address"), pick: send("address") })]);
+      rows.push([toggle({ label: "Show address line", text: "Address", read: read("address"), pick: send("address") })]);
     }
 
     return rows;
@@ -429,13 +624,12 @@ export class PropertyBar {
     } else if (extra.kind === "toggle") {
       control = toggle({ label: extra.label, content: icon(extra.icon), read, pick });
     } else {
-      control = choice({
+      control = this.choose({
         label: extra.label,
-        showLabel: true,
         options: Object.entries(extra.options).map(([value, name]) => ({
           value,
           name,
-          content: extra.icons ? icon(`${extra.key}-${value}`) : name
+          content: extra.icons ? () => icon(`${extra.key}-${value}`) : undefined
         })),
         read,
         pick
@@ -464,21 +658,20 @@ export class PropertyBar {
     }
 
     if (spec.alpha) {
-      top.push([choice({
+      top.push([this.choose({
         label: spec.alpha,
-        showLabel: true,
-        options: ALPHAS.map((value) => ({ value, name: `${value}%`, content: `${value}%` })),
+        options: ALPHAS.map((value) => ({ value, name: `${value}%` })),
         read: alphaOf,
         pick: (value) => this.onChange({ kind: "alpha", value })
       })]);
     }
 
     if (spec.shape) {
-      top.push([choice({
+      top.push([this.choose({
         label: "Line type",
         options: [
-          { value: "straight", name: "Straight", content: "Straight" },
-          { value: "elbow", name: "Right angle", content: "Right angle" }
+          { value: "straight", name: "Straight", content: () => icon("shape-straight") },
+          { value: "elbow", name: "Right angle", content: () => icon("shape-elbow") }
         ],
         read: (item) => item.data.shape ?? "straight",
         pick: (value) => this.onChange({ kind: "shape", value })
@@ -522,12 +715,8 @@ export class PropertyBar {
       group.append(el("h2", "prop-heading", title));
 
       for (const row of rows) {
-        const line = el("div", "prop-row");
-
-        // A choice like "100% 75% 50% 25%" needs a word to say what it is.
-        if (row[0].label) {
-          line.append(el("span", "prop-label", row[0].label));
-        }
+        // On/off buttons sit side by side; a menu button has the row to itself.
+        const line = el("div", row.some((control) => control.kind === "toggle") ? "prop-row prop-toggles" : "prop-row");
 
         for (const control of row) {
           line.append(control.element);

@@ -193,7 +193,7 @@ export class BoardView {
 
       event.preventDefault();
 
-      // The property bar has no menu of its own.
+      // The property column has no menu of its own.
       if (target?.closest(".property-bar")) {
         return;
       }
@@ -1260,7 +1260,7 @@ export class BoardView {
     this.notifyProperties();
   }
 
-  // ---- Properties (the property bar) --------------------------------------
+  // ---- Properties (the property column) --------------------------------------
 
   // The selected objects when they are all of one kind, else none.
   propertyTargets() {
@@ -1268,7 +1268,7 @@ export class BoardView {
     return items.length && items.every((item) => item.type === items[0].type) ? items : [];
   }
 
-  // Tells the property bar what is selected now (and so what to show).
+  // Tells the property column what is selected now (and so what to show).
   notifyProperties() {
     this.callbacks.onProperties?.(this.propertyTargets());
   }
@@ -1299,7 +1299,7 @@ export class BoardView {
     }
   }
 
-  // A choice from the property bar, applied to every selected object: { kind:
+  // A choice from the property column, applied to every selected object: { kind:
   // "fill" | "alpha" | "text" | "extra" | "shape", set, prop, value } (see
   // properties.js).
   // One undo step; while a card is being edited it joins that edit's step.
@@ -2147,7 +2147,7 @@ export class BoardView {
   }
 
   onWheel(event) {
-    // Over the property bar the wheel scrolls the bar, not the board.
+    // Over the property column the wheel scrolls it, not the board.
     if (!this.boardId || (event.target instanceof Element && event.target.closest(".property-bar"))) {
       return;
     }
@@ -2171,13 +2171,13 @@ export class BoardView {
   }
 
   onKeyDown(event) {
-    // Keys used in the menu, the property bar or its colour grid are theirs
+    // Keys used in the menu, the property column or its choice menus are theirs
     // (arrow keys must not nudge the cards, Delete must not delete them).
     if (
       !this.boardId
       || isTextField(event.target)
       || this.menu.element.contains(event.target)
-      || (event.target instanceof Element && event.target.closest(".property-bar, .color-grid"))
+      || (event.target instanceof Element && event.target.closest(".property-bar, .prop-menu-popup"))
     ) {
       return;
     }

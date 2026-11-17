@@ -33,38 +33,39 @@
   --mix-contrast: white;
   --card-bg: #1d1d1a;
   --card-border: rgba(242, 240, 233, 0.1);
-  /* Card colour palette: muted tones (keys match the server's palette). */
-  --tone-grey: #2c2c29;
-  --tone-red: #402523;
-  --tone-orange: #402d1e;
-  --tone-yellow: #3b3520;
-  --tone-green: #263421;
-  --tone-teal: #1f3432;
-  --tone-blue: #222d3f;
-  --tone-purple: #31263d;
-  --tone-slate: #272f38;
-  --tone-brown: #3a2d24;
-  --tone-sand: #38342b;
-  --tone-pink: #40262f;
-  --tone-lime: #323a1f;
-  --tone-cyan: #1d3640;
-  --tone-indigo: #272a45;
-  /* The same colours as strokes, for text and lines. */
-  --ink-grey: #a3a29b;
-  --ink-red: #e0817a;
-  --ink-orange: #e3a05f;
-  --ink-yellow: #d9c25a;
-  --ink-green: #8fc27a;
-  --ink-teal: #6fc2b6;
-  --ink-blue: #7fa6e6;
-  --ink-purple: #b394df;
-  --ink-slate: #93a4b8;
-  --ink-brown: #c49a7a;
-  --ink-sand: #d8c9a0;
-  --ink-pink: #e58fb0;
-  --ink-lime: #b5d654;
-  --ink-cyan: #5fc4dc;
-  --ink-indigo: #8f9be8;
+  /* Card colour palette (keys match the server's palette): rich, saturated
+     fills that are dark enough for light text, not neon. */
+  --tone-grey: #454540;
+  --tone-slate: #3c4c62;
+  --tone-brown: #774422;
+  --tone-sand: #745f34;
+  --tone-red: #882320;
+  --tone-pink: #922a56;
+  --tone-orange: #b1510b;
+  --tone-yellow: #987b06;
+  --tone-lime: #4d6b19;
+  --tone-green: #1d6d38;
+  --tone-teal: #12685f;
+  --tone-cyan: #0e6881;
+  --tone-blue: #1d55af;
+  --tone-indigo: #3737ae;
+  --tone-purple: #6f33a3;
+  /* The same colours as strokes, for text and lines: light and vivid. */
+  --ink-grey: #a8a89f;
+  --ink-slate: #8ea4c2;
+  --ink-brown: #c98754;
+  --ink-sand: #dabf81;
+  --ink-red: #f36f68;
+  --ink-pink: #f174a8;
+  --ink-orange: #f7903b;
+  --ink-yellow: #f9d02f;
+  --ink-lime: #9ed73c;
+  --ink-green: #49d47c;
+  --ink-teal: #34d5c0;
+  --ink-cyan: #3cccec;
+  --ink-blue: #66a1f5;
+  --ink-indigo: #888bf2;
+  --ink-purple: #b883ec;
   --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 18px rgba(0, 0, 0, 0.28);
   --popup-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
   --font-dos: "Perfect DOS VGA 437", ui-monospace, monospace;
@@ -100,36 +101,37 @@
   --mix-contrast: black;
   --card-bg: #ffffff;
   --card-border: rgba(28, 27, 24, 0.12);
-  --tone-grey: #ebeae4;
-  --tone-red: #f7ddd8;
-  --tone-orange: #f8e5d0;
-  --tone-yellow: #f6eec6;
-  --tone-green: #deedd3;
-  --tone-teal: #d4ebe7;
-  --tone-blue: #dae4f4;
-  --tone-purple: #e8def4;
-  --tone-slate: #dde3ea;
-  --tone-brown: #eadbcd;
-  --tone-sand: #efe8d4;
-  --tone-pink: #f8dbe6;
-  --tone-lime: #e6f0c8;
-  --tone-cyan: #d0ecf3;
-  --tone-indigo: #dde0f5;
-  --ink-grey: #6b6960;
-  --ink-red: #c4463d;
-  --ink-orange: #c2701f;
-  --ink-yellow: #a88a0b;
-  --ink-green: #4a8a35;
-  --ink-teal: #2b8a7d;
-  --ink-blue: #3b6cc4;
-  --ink-purple: #7f55b8;
-  --ink-slate: #4d6075;
-  --ink-brown: #8a5a3a;
-  --ink-sand: #7f6f3a;
-  --ink-pink: #c2467a;
-  --ink-lime: #5b7d0a;
-  --ink-cyan: #1c7f9a;
-  --ink-indigo: #4a56b5;
+  /* Light: saturated pastels as fills, deep versions as strokes. */
+  --tone-grey: #e3e3de;
+  --tone-slate: #cad4e2;
+  --tone-brown: #ddb89d;
+  --tone-sand: #ecd7a7;
+  --tone-red: #faaca8;
+  --tone-pink: #f9b8d3;
+  --tone-orange: #fcc392;
+  --tone-yellow: #ffe875;
+  --tone-lime: #c6ec79;
+  --tone-green: #9ce8b5;
+  --tone-teal: #89e6da;
+  --tone-cyan: #8ee4f6;
+  --tone-blue: #9ec4fa;
+  --tone-indigo: #b8b8f9;
+  --tone-purple: #d4b2f5;
+  --ink-grey: #66665c;
+  --ink-slate: #465c7c;
+  --ink-brown: #864d27;
+  --ink-sand: #876222;
+  --ink-red: #ca2921;
+  --ink-pink: #c5266d;
+  --ink-orange: #c65910;
+  --ink-yellow: #a97804;
+  --ink-lime: #53810e;
+  --ink-green: #1e8042;
+  --ink-teal: #0d776d;
+  --ink-cyan: #087491;
+  --ink-blue: #1759d3;
+  --ink-indigo: #3131c4;
+  --ink-purple: #7a35b6;
   --card-shadow: 0 1px 2px rgba(28, 27, 24, 0.12), 0 6px 18px rgba(28, 27, 24, 0.08);
   --popup-shadow: 0 12px 32px rgba(28, 27, 24, 0.18);
 }
@@ -1397,34 +1399,38 @@ body.is-placing * {
   }
 }
 
-/* ---- Property bar ------------------------------------------------------------
-   Over the left edge of the canvas (the board doesn't move), a strip above the
-   toolbar on phones. Shown while objects of one kind are selected. */
+/* ---- Property column ---------------------------------------------------------
+   A narrow column attached to the toolbar, laid over the left edge of the
+   canvas (the board doesn't move); a strip above the toolbar on phones. Shown
+   while objects of one kind are selected. Each property is one small button
+   with its current value; a menu beside it holds the choices. */
 
 .property-bar {
   position: absolute;
   z-index: 3;
-  top: 12px;
-  left: 12px;
+  top: 0;
+  left: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: 232px;
-  max-height: calc(100% - 24px);
-  overflow-y: auto;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px;
+  width: 76px;
+  max-height: 100%;
+  overflow: hidden auto;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-bottom-right-radius: var(--radius);
+  padding: 10px 8px 12px;
   background: var(--surface);
   box-shadow: var(--card-shadow);
-  touch-action: pan-x pan-y;
+  scrollbar-width: thin;
+  touch-action: pan-y;
   overscroll-behavior: contain;
 }
 
 .prop-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .prop-group + .prop-group {
@@ -1433,60 +1439,101 @@ body.is-placing * {
 }
 
 .prop-heading {
-  margin: 0;
+  margin: 0 0 2px;
+  overflow: hidden;
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.prop-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.prop-label {
-  flex: none;
-  width: 100%;
-  color: var(--muted);
-  font-size: 0.75rem;
-}
-
-.prop-seg {
-  display: flex;
+/* On/off buttons (bold, italic...) sit side by side, a lone one fills the row. */
+.prop-toggles {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 4px;
 }
 
-.prop-button,
-.prop-colour {
-  min-width: 36px;
+.prop-toggles > :only-child {
+  grid-column: 1 / -1;
+}
+
+.prop-choice,
+.prop-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
   height: 32px;
   border: 1px solid var(--line);
   border-radius: var(--radius-small);
-  padding: 0 8px;
+  padding: 0;
   background: none;
   color: var(--text);
   font-size: 0.8rem;
   cursor: pointer;
 }
 
-.prop-button:hover,
-.prop-colour:hover {
+.prop-toggle {
+  height: 30px;
+}
+
+.prop-choice:hover,
+.prop-toggle:hover {
   background: var(--hover-strong);
 }
 
-.prop-button[aria-checked="true"],
-.prop-button[aria-pressed="true"] {
+/* A choice button: its current value, and a small arrow towards its menu. */
+.prop-choice {
+  position: relative;
+  padding: 0 12px 0 4px;
+}
+
+.prop-choice::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  margin-top: -3px;
+  border: 3px solid transparent;
+  border-right: 0;
+  border-left: 4px solid var(--muted);
+}
+
+.prop-choice[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
+.prop-toggle[aria-pressed="true"] {
   border-color: var(--accent);
   background: var(--hover);
   color: var(--accent);
 }
 
-.prop-button[aria-pressed="mixed"] {
+.prop-toggle[aria-pressed="mixed"] {
   border-style: dashed;
+}
+
+.prop-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.prop-face-text {
+  white-space: nowrap;
+}
+
+.prop-glyph {
+  font-weight: 600;
+  line-height: 1;
 }
 
 .prop-icon {
@@ -1501,6 +1548,13 @@ body.is-placing * {
   stroke-linejoin: round;
 }
 
+/* One line, drawn thinner, thicker, dashed or dotted. */
+.prop-icon-thickness-thin { stroke-width: 1; }
+.prop-icon-thickness-thick { stroke-width: 4; }
+.prop-icon-dash-dashed path { stroke-dasharray: 4 3; }
+.prop-icon-dash-dotted { stroke-width: 2.6; }
+.prop-icon-dash-dotted path { stroke-dasharray: 0.1 4.4; }
+
 .prop-bold { font-weight: 800; }
 .prop-strike { text-decoration: line-through; }
 .prop-italic { font-style: italic; }
@@ -1508,24 +1562,12 @@ body.is-placing * {
 .prop-font-serif { font-family: var(--font-serif); }
 .prop-font-mono { font-family: var(--font-mono); }
 
-.prop-colour {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-}
-
-.prop-colour[aria-expanded="true"] {
-  border-color: var(--accent);
-}
-
 /* A colour: the swatch takes --swatch; a mixed selection is striped. */
 .swatch,
 .swatch-button {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-small);
   padding: 0;
@@ -1536,17 +1578,79 @@ body.is-placing * {
   background: repeating-linear-gradient(135deg, var(--line-strong) 0 3px, transparent 3px 6px);
 }
 
-.color-grid {
+/* The menu beside a property button: one list of choices at a time, shared by
+   every property. */
+.prop-menu-popup {
   position: fixed;
   z-index: 110;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 6px;
+  background: var(--surface);
+  box-shadow: var(--popup-shadow);
+}
+
+.prop-menu-popup.is-grid {
   display: grid;
   grid-template-columns: repeat(4, 30px);
   gap: 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
+  min-width: 0;
   padding: 10px;
-  background: var(--surface);
-  box-shadow: var(--popup-shadow);
+}
+
+.prop-menu-title {
+  padding: 2px 6px 4px;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.is-grid > .prop-menu-title {
+  grid-column: 1 / -1;
+  padding: 0;
+}
+
+.prop-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  border-radius: var(--radius-small);
+  padding: 0 12px 0 8px;
+  background: none;
+  color: var(--text);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prop-option-face {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+}
+
+.prop-option:hover,
+.prop-option:focus-visible {
+  background: var(--hover-strong);
+}
+
+.prop-option[aria-checked="true"] {
+  background: var(--hover);
+  color: var(--accent);
 }
 
 .swatch-button {
@@ -1561,13 +1665,16 @@ body.is-placing * {
 }
 
 @media (pointer: coarse) {
-  .prop-button,
-  .prop-colour {
-    min-width: 44px;
+  .prop-choice,
+  .prop-toggle {
     height: 44px;
   }
 
-  .color-grid {
+  .prop-option {
+    min-height: 44px;
+  }
+
+  .prop-menu-popup.is-grid {
     grid-template-columns: repeat(4, 44px);
   }
 
@@ -1650,27 +1757,33 @@ body.is-placing * {
     bottom: 8px;
   }
 
-  /* The property bar becomes a strip along the bottom of the board, above the
-     toolbar, that scrolls sideways; the zoom controls move up out of its way. */
+  /* The property column becomes a strip along the bottom of the board, flush
+     above the toolbar, that scrolls sideways; the zoom controls move up out of
+     its way. */
   .property-bar {
     top: auto;
-    right: 8px;
-    bottom: 8px;
-    left: 8px;
+    right: 0;
+    bottom: 0;
+    left: 0;
     flex-direction: row;
     align-items: center;
     gap: 12px;
     width: auto;
     max-height: none;
     overflow: auto hidden;
+    border-right: 0;
+    border-bottom: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
     padding: 6px 8px;
+    touch-action: pan-x;
   }
 
   .prop-group {
     flex: none;
     flex-direction: row;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
   }
 
   .prop-group + .prop-group {
@@ -1679,20 +1792,33 @@ body.is-placing * {
     padding: 0 0 0 12px;
   }
 
+  .prop-heading {
+    margin: 0 2px 0 0;
+  }
+
   .prop-row {
-    flex-wrap: nowrap;
+    flex: none;
   }
 
-  .prop-label {
-    width: auto;
+  .prop-choice {
+    width: 52px;
   }
 
-  .prop-colour {
+  .prop-toggles {
+    display: flex;
+  }
+
+  .prop-toggle {
+    width: 36px;
+  }
+
+  .prop-toggles > :only-child {
     width: auto;
+    padding: 0 8px;
   }
 
   .canvas.has-properties .zoom-controls {
-    bottom: 80px;
+    bottom: 68px;
   }
 }
 

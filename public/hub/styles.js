@@ -1,5 +1,5 @@
 // What can be styled on each kind of object, and how a style is stored and
-// drawn (docs/hub-spec.md, section 6, "Property bar"). Pure data and helpers,
+// drawn (docs/hub-spec.md, section 6, "Property column"). Pure data and helpers,
 // no DOM. The server checks the same limits (src/hub/validate.js); a test keeps
 // the two in step.
 //
@@ -55,7 +55,8 @@ export const ALPHAS = [100, 75, 50, 25];
 // stored as data.style[key]; `kind` is "choice" (one of `options`), "color" or
 // "toggle"; `default` is what it is when nothing is stored (a function of the
 // item where that depends on the object); `group` and `row` say where the bar
-// puts it; `when` hides it while it would have no effect.
+// puts it; `icons` shows a choice's options as small drawings instead of words;
+// `when` hides it while it would have no effect.
 export const OBJECT_STYLES = {
   note: {
     heading: "Fill",
@@ -96,7 +97,7 @@ export const OBJECT_STYLES = {
         group: "Frame",
         when: (item) => (item.data.style?.border ?? "none") !== "none"
       },
-      { key: "corners", kind: "choice", label: "Corners", options: { square: "Square", rounded: "Rounded" }, default: "square", group: "Frame" }
+      { key: "corners", kind: "choice", label: "Corners", options: { square: "Square", rounded: "Rounded" }, icons: true, default: "square", group: "Frame" }
     ]
   },
   link: {
@@ -144,8 +145,8 @@ export const OBJECT_STYLES = {
     shape: true,
     sets: [],
     extras: [
-      { key: "thickness", kind: "choice", label: "Thickness", options: { thin: "Thin", medium: "Medium", thick: "Thick" }, default: "medium", group: "Stroke" },
-      { key: "dash", kind: "choice", label: "Style", options: { solid: "Solid", dashed: "Dashed", dotted: "Dotted" }, default: "solid", group: "Stroke" },
+      { key: "thickness", kind: "choice", label: "Thickness", options: { thin: "Thin", medium: "Medium", thick: "Thick" }, icons: true, default: "medium", group: "Stroke" },
+      { key: "dash", kind: "choice", label: "Line style", options: { solid: "Solid", dashed: "Dashed", dotted: "Dotted" }, icons: true, default: "solid", group: "Stroke" },
       {
         key: "arrow",
         kind: "choice",

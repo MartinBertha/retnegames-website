@@ -1,6 +1,6 @@
 // Card menu (docs/hub-spec.md, section 6): right-click, long-press on touch,
 // or the Menu key / Shift+F10. Actions on the selected cards only: how an
-// object looks is changed in the property bar (properties.js). On empty canvas
+// object looks is changed in the property column (properties.js). On empty canvas
 // it only offers Paste.
 
 const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
