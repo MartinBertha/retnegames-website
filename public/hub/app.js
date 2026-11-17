@@ -9,6 +9,8 @@ import { BoardView } from "./board.js";
 import { httpUrl } from "./cards.js";
 import { CARDS_MIME, makePayload, parsePayload, payloadText, storedPayload, storePayload } from "./clipboard.js";
 import { isDialogOpen } from "./dialog.js";
+import { currentIndex, Finder, onIndexLoaded, recordRecentBoard, refreshIndex } from "./finder.js";
+import { hubUrl, parseHubHash, setHubLinkNamer } from "./hublinks.js";
 import { IMAGE_ACCEPT, imageFileProblem, prepareImage } from "./images.js";
 import { cardLabel, plural } from "./labels.js";
 import { resolveConflict } from "./merge.js";
@@ -31,7 +33,6 @@ const moreButton = document.getElementById("more-button");
 const moreMenu = document.getElementById("more-menu");
 const importInput = document.getElementById("import-input");
 
-const BOARD_HASH = /^#\/b\/([0-9a-f-]{36})$/;
 const REV_POLL_MS = 15_000;
 const VIEW_SAVE_MS = 1_000;
 const LEAVE_FLUSH_TIMEOUT_MS = 5_000;
@@ -214,7 +215,15 @@ const view = new BoardView(
     },
     canPaste: () => Boolean(storedPayload()),
     isOnPath: (boardId) => Boolean(current?.path.some((entry) => entry.id === boardId)),
-    onNotice: (message) => showToast(message, { tone: "error", timeout: 7000 })
+    onNotice: (message) => showToast(message, { tone: "error", timeout: 7000 }),
+    onOpenHubLink: ({ boardId, cardId }) => {
+      if (cardId) {
+        showCard(boardId, cardId);
+      } else if (boardId !== current?.id) {
+        goToBoard(boardId);
+      }
+    },
+    onCopyLink: (id) => copyCardLink(id)
   }
 );
 
@@ -229,8 +238,9 @@ function showSaveStatus(state) {
   saveStatus.dataset.state = state;
 }
 
-function boardIdFromHash() {
-  return BOARD_HASH.exec(window.location.hash)?.[1] ?? null;
+// #/b/<board>, or #/b/<board>/c/<card> for a card on it (hublinks.js).
+function targetFromHash() {
+  return parseHubHash(window.location.hash);
 }
 
 function el(tag, className, text) {
@@ -503,10 +513,16 @@ async function load() {
   try {
     await leaveBoard();
 
-    let id = boardIdFromHash();
+    const target = targetFromHash();
+    let id = target?.boardId;
 
     if (!id) {
       ({ rootId: id } = await api.listBoards());
+    }
+
+    // A link to a card: show it once the board is open.
+    if (target?.cardId) {
+      pendingReveal = { boardId: id, itemId: target.cardId };
     }
 
     const { board, path, items } = await api.getBoard(id);
@@ -516,15 +532,17 @@ async function load() {
     }
 
     current = { ...board, path: trailTo(board, path) };
-    history.replaceState({ trail: current.path }, "");
+    // The address keeps only the board, so a reload doesn't jump to the card.
+    history.replaceState({ trail: current.path }, "", target?.cardId ? `#/b/${board.id}` : undefined);
     savedView = { viewX: board.viewX, viewY: board.viewY, viewZoom: board.viewZoom };
     notice.replaceChildren();
     renderBreadcrumb();
     saver.remember(items);
     view.show(board.id, { x: board.viewX, y: board.viewY, zoom: board.viewZoom }, withLocalChanges(board.id, items));
+    recordRecentBoard(board.id);
 
-    if (pendingReveal?.boardId === board.id) {
-      view.revealCard(pendingReveal.itemId);
+    if (pendingReveal?.boardId === board.id && !view.revealCard(pendingReveal.itemId)) {
+      showToast("That card isn't on this board any more. If it was deleted, it's in Recently deleted.", { tone: "error", timeout: 8000 });
     }
 
     pendingReveal = null;
@@ -1100,8 +1118,13 @@ async function importFile(file) {
   }
 }
 
-// Shows a board, then selects and centres one of its cards.
+// Shows a board, then selects and centres one of its cards. A card on the
+// open board is shown without loading the board again.
 function showCard(boardId, itemId) {
+  if (current?.id === boardId && view.revealCard(itemId)) {
+    return;
+  }
+
   pendingReveal = { boardId, itemId };
 
   if (current?.id !== boardId) {
@@ -1110,6 +1133,117 @@ function showCard(boardId, itemId) {
 
   load();
 }
+
+// Opens a board found by search or a link (its breadcrumb is its home path).
+function goToBoard(boardId) {
+  history.pushState({}, "", `#/b/${boardId}`);
+  load();
+}
+
+// ---- Search and Go to (finder.js), card links (hublinks.js) ---------------------
+
+const finder = new Finder({
+  getBoardId: () => current?.id ?? null,
+  flush: () => saver.flush(),
+  onOpenBoard: (id) => {
+    if (id !== current?.id) {
+      goToBoard(id);
+    }
+  },
+  onOpenCard: showCard
+});
+
+// What a link into the hub shows: the card's words (from the open board when
+// it's there, else the search index) and the board it's on.
+setHubLinkNamer(({ boardId, cardId }) => {
+  const index = currentIndex();
+  const board = index?.boards.get(boardId);
+  const boardName = board?.name ?? (boardId === current?.id ? current.name : null);
+
+  if (!cardId) {
+    return boardName ? { title: boardName, where: board?.path.at(-1) ?? "" } : null;
+  }
+
+  const here = boardId === view.boardId ? view.items.get(cardId) : null;
+  const indexed = index?.itemsById.get(cardId);
+  const title = here ? cardLabel(here, 80) : indexed?.label;
+
+  return title || boardName ? { title: title ?? "Card", where: boardName ?? "another board" } : null;
+});
+
+onIndexLoaded(() => view.refreshHubLinks());
+
+// Copies text with the older copy command (a hidden text field), where the
+// Clipboard API isn't allowed.
+function copyWithCommand(text) {
+  const field = el("textarea");
+  const focused = document.activeElement;
+
+  field.value = text;
+  field.readOnly = true;
+  field.style.position = "fixed";
+  field.style.top = "0";
+  field.style.opacity = "0";
+  document.body.append(field);
+  field.select();
+
+  let copied = false;
+
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  }
+
+  field.remove();
+  focused?.focus?.({ preventScroll: true });
+  return copied;
+}
+
+async function copyCardLink(id) {
+  const item = view.items.get(id);
+
+  if (!item || !view.boardId) {
+    return;
+  }
+
+  const url = hubUrl({ boardId: view.boardId, cardId: id });
+  let copied = false;
+
+  try {
+    await navigator.clipboard.writeText(url);
+    copied = true;
+  } catch {
+    copied = copyWithCommand(url);
+  }
+
+  if (copied) {
+    showToast(`Link to "${cardLabel(item, 40)}" copied. Paste it into a note, or onto any board as a link card.`, { timeout: 6000 });
+  } else {
+    showToast(`Couldn't copy the link: ${url}`, { tone: "error", timeout: 12_000 });
+  }
+
+  // So other boards can show this card's name.
+  refreshIndex().catch(() => {});
+}
+
+document.getElementById("search-button").addEventListener("click", () => finder.open());
+
+// Ctrl/Cmd+K anywhere, or "/" when not typing, opens Go to.
+document.addEventListener("keydown", (event) => {
+  const commandK = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "k";
+  const slash = event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !isTextTarget(event.target);
+
+  if ((!commandK && !slash) || (isDialogOpen() && !finder.isOpen)) {
+    return;
+  }
+
+  event.preventDefault();
+  view.finishEditing();
+  view.menu.close();
+  setMoreMenu(false, { focus: false });
+  finder.open();
+});
 
 document.getElementById("trash-button").addEventListener("click", () => {
   setMoreMenu(false, { focus: false });
@@ -1217,3 +1351,6 @@ window.addEventListener("beforeunload", (event) => {
 
 setInterval(checkForUpdates, REV_POLL_MS);
 load();
+
+// The search index, in the background: names for links into the hub.
+refreshIndex().catch(() => {});

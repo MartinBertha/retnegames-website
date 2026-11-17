@@ -70,6 +70,7 @@ export const api = {
   exportAll: () => request("GET", "/export", undefined, { raw: true }),
   importExport: (data) => request("POST", "/import", data),
   listTrash: () => request("GET", "/trash"),
+  searchIndex: () => request("GET", "/index"),
   listBackups: () => request("GET", "/backups"),
   backUpNow: () => request("POST", "/backups"),
   restoreBackup: (name) => request("POST", `/backups/${encodeURIComponent(name)}/restore`)

@@ -3,6 +3,7 @@
 
 import { fileUrl } from "./api.js";
 import { DEFAULT_LENGTH, DEFAULT_RISE, linePoints } from "./connectors.js";
+import { hubLinkPlace, hubLinkText, hubTarget } from "./hublinks.js";
 import { COLOR_KEYS, styleVars, textValue } from "./styles.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -89,6 +90,15 @@ function externalLink(className, href, text) {
   return link;
 }
 
+// A link to a board or card in this hub: opens here, shows its name.
+function hubLink(href, target) {
+  const link = el("a", "hub-link", hubLinkText(target));
+  link.href = href;
+  link.title = hubLinkPlace(target);
+  link.draggable = false;
+  return link;
+}
+
 function appendLinkedText(parent, text) {
   let index = 0;
 
@@ -100,11 +110,17 @@ function appendLinkedText(parent, text) {
       continue;
     }
 
-    parent.append(text.slice(index, match.index), externalLink("", href, label));
+    const target = hubTarget(href);
+    parent.append(text.slice(index, match.index), target ? hubLink(href, target) : externalLink("", href, label));
     index = match.index + label.length;
   }
 
   parent.append(text.slice(index));
+}
+
+// Whether a card shows a link into this hub (its words change with the names).
+export function hasHubLink(item) {
+  return item.type !== "image" && JSON.stringify(item.data).includes("/hub/#/b/");
 }
 
 // A note's text: as it is, or as a list, where every line is an item. Its
@@ -406,14 +422,30 @@ const RENDERERS = {
     const title = card.querySelector(".link-title");
     const host = hostname(item.data.url);
     const href = httpUrl(item.data.url);
+    const target = href ? hubTarget(href) : null;
+
+    title.classList.toggle("hub-link", Boolean(target));
 
     if (href) {
       title.href = href;
-      title.target = "_blank";
-      title.rel = "noopener noreferrer";
       title.draggable = false;
+
+      // Links into the hub open here; others in a new tab.
+      if (target) {
+        title.removeAttribute("target");
+        title.removeAttribute("rel");
+      } else {
+        title.target = "_blank";
+        title.rel = "noopener noreferrer";
+      }
     } else {
       title.removeAttribute("href");
+    }
+
+    if (target) {
+      title.textContent = item.data.title || hubLinkText(target);
+      card.querySelector(".link-host").textContent = hubLinkPlace(target);
+      return;
     }
 
     title.textContent = item.data.title || host || item.data.url || "Add a link";

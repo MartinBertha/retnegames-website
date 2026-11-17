@@ -14,6 +14,7 @@ import {
 import { createBackup, getBackup, listBackups, restoreBackup } from "./backups.js";
 import { getFile, missingFiles, uploadFile } from "./files.js";
 import { boardsToDelete, boardsToRestore, hasLiveLink, loadGraph, reachable } from "./folders.js";
+import { searchIndex } from "./search.js";
 import { exportAll, importExport } from "./transfer.js";
 import { listTrash } from "./trash.js";
 import { cleanName, isPlainObject, isUuid, validateItem } from "./validate.js";
@@ -680,6 +681,7 @@ const ROUTES = [
   { pattern: /^\/export$/, methods: { GET: exportAll } },
   { pattern: /^\/import$/, methods: { POST: importExport } },
   { pattern: /^\/trash$/, methods: { GET: listTrash } },
+  { pattern: /^\/index$/, methods: { GET: searchIndex } },
   { pattern: /^\/backups$/, methods: { GET: listBackups, POST: createBackup } },
   { pattern: /^\/backups\/([^/]+)$/, methods: { GET: getBackup } },
   { pattern: /^\/backups\/([^/]+)\/restore$/, methods: { POST: restoreBackup } }

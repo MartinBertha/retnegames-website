@@ -12,6 +12,7 @@ import {
   CARD_TYPES,
   applyCardStyle,
   createCardElement,
+  hasHubLink,
   invalidateCard,
   positionCard,
   updateCardElement
@@ -34,6 +35,7 @@ import {
 } from "./connectors.js";
 import { startEditor } from "./editors.js";
 import { History } from "./history.js";
+import { hubTarget } from "./hublinks.js";
 import { CardMenu } from "./menu.js";
 import { setAlpha, setExtra, setTextValue } from "./styles.js";
 import { GRID, Viewport } from "./viewport.js";
@@ -48,6 +50,7 @@ const LONG_PRESS_MS = 550;
 const CASCADE_OFFSET = GRID;
 const IMAGE_CARD_EDGE = 336;
 const FIT_PADDING = 48;
+const REVEAL_ZOOM = 0.8;
 const POINTER_MEMORY_MS = 10_000;
 // Dragging a line end: it snaps to a hotspot this close (screen pixels, wider
 // for fingers), and hotspots show on cards within HOTSPOT_REACH of the pointer.
@@ -415,18 +418,43 @@ export class BoardView {
     this.itemsChanged();
   }
 
-  // Selects a card and centres the view on it (trash: "Show").
+  // Selects a card, centres the view on it at a readable zoom (at least 80%,
+  // less if it wouldn't fit) and briefly highlights it: search results, card
+  // links and the trash's "Show".
   revealCard(id) {
     const item = this.items.get(id);
+    const card = this.elements.get(id);
 
-    if (!item) {
+    if (!item || !card) {
       return false;
     }
 
     this.viewport.measure();
-    this.viewport.setView(item.x + item.w / 2, item.y + item.h / 2, this.viewport.zoom);
+
+    const fit = Math.min(
+      (this.viewport.width - FIT_PADDING * 2) / Math.max(item.w, 1),
+      (this.viewport.height - FIT_PADDING * 2) / Math.max(item.h, 1)
+    );
+    const zoom = Math.max(0.1, Math.min(Math.max(this.viewport.zoom, REVEAL_ZOOM), fit, 1.5));
+
+    this.viewport.setView(item.x + item.w / 2, item.y + item.h / 2, zoom);
     this.setSelection([id]);
+    card.classList.remove("is-revealed");
+    void card.offsetWidth;
+    card.classList.add("is-revealed");
+    card.addEventListener("animationend", () => card.classList.remove("is-revealed"), { once: true });
     return true;
+  }
+
+  // Links into the hub show names, which change: draws those cards again.
+  refreshHubLinks() {
+    for (const [id, item] of this.items) {
+      if (id !== this.editing?.id && hasHubLink(item)) {
+        const card = this.elements.get(id);
+        invalidateCard(card);
+        updateCardElement(card, item);
+      }
+    }
   }
 
   // Server copy after a refetch (with unsaved local changes already applied).
@@ -1401,7 +1429,7 @@ export class BoardView {
 
     this.finishEditing();
     this.menuPoint = this.viewport.toWorld(this.viewport.localPoint({ clientX, clientY }));
-    this.menu.open(clientX, clientY, { canPaste: Boolean(this.callbacks.canPaste?.()) });
+    this.menu.open(clientX, clientY, { canPaste: Boolean(this.callbacks.canPaste?.()), canLink: items.length === 1 });
   }
 
   // Right-click or long-press on empty canvas: Paste.
@@ -1423,6 +1451,8 @@ export class BoardView {
       this.deleteSelected();
     } else if (type === "copy" || type === "cut" || type === "paste") {
       this.callbacks.onClipboard?.(type, type === "paste" ? this.menuPoint : null);
+    } else if (type === "link" && this.selected.size === 1) {
+      this.callbacks.onCopyLink?.([...this.selected][0]);
     }
   }
 
@@ -1884,8 +1914,12 @@ export class BoardView {
     }
 
     const link = target instanceof Element ? target.closest(".card a[href]") : null;
+    const hub = link ? hubTarget(link.href) : null;
 
-    if (link) {
+    // A link into the hub opens here (with Ctrl/Cmd or Shift: in a new tab).
+    if (hub && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      this.callbacks.onOpenHubLink?.(hub);
+    } else if (link) {
       window.open(link.href, "_blank", "noopener,noreferrer");
     }
   }

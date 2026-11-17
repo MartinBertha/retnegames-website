@@ -1753,6 +1753,227 @@ body.is-placing * {
   }
 }
 
+/* ---- Links into the hub, and a card being shown ------------------------------ */
+
+.card a.hub-link {
+  text-decoration-style: dotted;
+}
+
+.card a.hub-link::before {
+  content: "→ ";
+  text-decoration: none;
+}
+
+.card.is-revealed {
+  animation: card-reveal 1.4s ease-out;
+}
+
+@keyframes card-reveal {
+  0%,
+  40% {
+    box-shadow: 0 0 0 calc(6px / var(--zoom, 1)) var(--focus);
+  }
+
+  100% {
+    box-shadow: 0 0 0 calc(6px / var(--zoom, 1)) transparent;
+  }
+}
+
+/* ---- Go to (search) ------------------------------------------------------------ */
+
+.finder {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(72dvh, 680px);
+  margin-top: 10vh;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0;
+  background: var(--surface);
+  box-shadow: var(--popup-shadow);
+  color: var(--text);
+}
+
+.finder[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.finder::backdrop {
+  background: var(--backdrop);
+}
+
+.finder-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+  padding: 0 16px;
+}
+
+.finder-head svg,
+.finder-option svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.finder-input {
+  flex: 1;
+  min-width: 0;
+  height: 52px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.finder-input:focus {
+  outline: none;
+}
+
+.finder-status {
+  flex: none;
+  margin: 0;
+  padding: 0 16px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.finder-status:not(:empty) {
+  padding: 16px;
+}
+
+.finder-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px 8px 8px;
+  list-style: none;
+}
+
+.finder-heading {
+  margin: 10px 8px 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.finder-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.finder-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  border-radius: var(--radius-small);
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.finder-option.is-tree {
+  min-height: 34px;
+  padding-left: calc(8px + var(--depth, 0) * 18px);
+}
+
+.finder-option:hover {
+  background: var(--hover);
+}
+
+.finder-option[aria-selected="true"] {
+  background: var(--hover-strong);
+  box-shadow: inset 2px 0 0 var(--focus);
+}
+
+.finder-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.finder-title,
+.finder-snippet,
+.finder-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finder-snippet {
+  color: var(--text);
+  font-size: 0.86rem;
+  opacity: 0.85;
+}
+
+.finder-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.finder-option mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--focus) 32%, transparent);
+  color: inherit;
+}
+
+.finder-badge {
+  flex: none;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.finder-thumb {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-small);
+  background: var(--hover);
+  object-fit: cover;
+}
+
+.finder-foot {
+  flex: none;
+  margin: 0;
+  border-top: 1px solid var(--line);
+  padding: 8px 16px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+@media (pointer: coarse) {
+  .finder-option {
+    min-height: 44px;
+  }
+
+  .finder-foot {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .finder {
+    max-height: calc(100dvh - 24px);
+    margin-top: 12px;
+  }
+}
+
 /* ---- Dialogs (Recently deleted, Backups) ----------------------------------- */
 
 /* The ⋯ menu's export items are longer than the card menu's. */

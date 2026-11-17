@@ -63,8 +63,12 @@ None of these values are secrets. There are no new secrets in v1.
 - **Export with images** as a `.zip`, which imports into any hub, uploading the images it lacks (section 6).
 - **Edits from two devices are merged**, not overwritten: a save says which version it was made from, and a clash in text keeps both versions (section 6 "Saving").
 
+### Added after v1 (finding things)
+- **Search and Go to** (Ctrl/Cmd+K): search every board and card, browse all boards as a tree, recently opened boards (section 6).
+- **Card links**: a link to one card (`#/b/<board>/c/<card>`), copied from the card menu; inside the hub it opens there and shows the card's name (section 6).
+
 ### Explicitly out of v1
-Curved connectors, adjustable bends or automatic routing around cards or with three or four turns for right-angle lines, connector labels, thickness, dashes or arrowhead choices (lines have a fixed arrowhead at the end), global search, multi-user or sharing, real-time collaboration, offline mode, rich-text editing, version-history UI, comments, due dates on checklist items, native mobile app, any third-party scripts or CDNs.
+Curved connectors, adjustable bends or automatic routing around cards or with three or four turns for right-angle lines, connector labels, thickness, dashes or arrowhead choices (lines have a fixed arrowhead at the end), multi-user or sharing, real-time collaboration, offline mode, rich-text editing, version-history UI, comments, due dates on checklist items, native mobile app, any third-party scripts or CDNs.
 
 ---
 
@@ -192,6 +196,7 @@ All under `/hub/api`, JSON, `Cache-Control: no-store`, authenticated as in secti
 | `GET /files/:id` | Stream the image from R2 |
 | `GET /export` | Full JSON export (boards and items; images referenced by `fileId`, not embedded) |
 | `POST /import` | Import an export into new boards under the root (never overwrites existing data) |
+| `GET /index` | The search index: `{ rootId, boards: [ { id, parentId, name, updatedAt } ], items: [ { id, boardId, type, title, body, ref, updatedAt } ] }` for every live item on a live board except lines. `title`: a note's, checklist's, link's or section's title, an image's caption, a folder's name; `body`: a note's text, a checklist's item texts (one per line), a link's address; `ref`: an image's `fileId` or a folder's `childBoardId`. SQLite extracts these from the JSON (`json_extract`, `json_each`), so the Worker doesn't parse every item. |
 | `GET /trash` | Recently deleted: the 300 most recently deleted items on boards that aren't deleted, newest first: `{ items: [ { item, boardId, boardName, deletedAt } ], limit }` |
 | `GET /backups` | The saved backups, newest first: `{ backups: [ { name, createdAt, size, boards, cards } ], keep }` |
 | `POST /backups` | Back up now, unless nothing changed since the newest backup → `{ created, backup }` |
@@ -212,11 +217,21 @@ Notes:
 ## 6. Frontend behaviour
 
 ### Layout
-- **Top bar:** breadcrumb (Home › Game › Art), save status ("Saved", "Saving…", "Offline, retrying"), theme toggle, and the ⋯ menu: Snap to grid; Recently deleted…; Backups…; Export with images (.zip); Export without images (.json); Import an export… (`.json` or `.zip`).
+- **Top bar:** breadcrumb (Home › Game › Art), save status ("Saved", "Saving…", "Offline, retrying"), the search button (Go to), theme toggle, and the ⋯ menu: Snap to grid; Recently deleted…; Backups…; Export with images (.zip); Export without images (.json); Import an export… (`.json` or `.zip`).
 - **Recently deleted** (a dialog): the deleted cards (`GET /trash`), newest first, each with its words (title or first line), kind, board and when it was deleted, and a thumbnail for images. Empty notes, checklists and links aren't listed. **Restore** puts the card back where it was (a folder also brings back its board and everything in it) and turns into **Show**, which opens that board with the card selected and centred.
 - **Backups** (a dialog): what the daily backup does, a **Back up now** button, and the backups (date and time, boards, cards, size), each with **Download** and **Restore a copy** (adds it as a new folder on Home and opens it; nothing is overwritten).
 - **Export with images** downloads `retne-hub-YYYY-MM-DD.zip`: `export.json` (the same as the JSON export), `README.txt`, and every image as `images/<fileId>.<ext>`, built in the browser (`zip.js`: stored entries, CRC-32, no ZIP64, so under 4 GB). **Import** takes a `.json` or such a `.zip`: from a `.zip` it asks `POST /files/missing` which images this hub lacks, uploads those from the archive, points the cards at the new ids, and then imports as usual. A `.zip` re-made by another tool (deflated entries, or everything inside a folder) is read too.
 - Dialogs are native modal `<dialog>` elements; while one is open, the board ignores its keys and the clipboard.
+
+### Search and Go to
+- Opened with **Ctrl/Cmd+K** (anywhere, also while editing), **/** (when not typing), or the search button in the top bar. A modal dialog near the top of the screen with a search field and a list of results (`finder.js`, matching in `search.js`).
+- **Nothing typed:** *Recent boards* (the last boards opened on this device, kept in `localStorage`, the open one left out, up to 5), then *All boards*: every board as a tree under Home, indented, children by name, the open board marked "Open". A board opened from several folders appears once, under its home. This is the board navigator.
+- **Typing** searches the index from `GET /index`, fetched each time the dialog opens (after saving pending changes, waiting at most 1.5 s), and at start-up. Every word typed must appear, in any order; case and accents are ignored (`Cafe` finds "café"). *Boards*: by name (name starting with the first word ranks higher), or by the names of the boards they're in (ranked lower), up to 8, each with its path. *Cards*: notes, checklists, images, links and sections by title (ranked first) and words (text, checklist items, link address), up to 40 with a count of the rest. Folder cards aren't listed: their boards are. Equal scores put the most recently changed first. Each card shows its title, a one-line snippet around the first match, its kind and the board path; images show a thumbnail. Matches are marked with `<mark>` (built from text nodes).
+- Up and down arrows (and Page Up/Down) move through the results, Enter or a click opens: a board opens; a card opens its board with the card selected, centred and briefly highlighted, at a readable zoom (at least 80%, less if the card wouldn't fit). Esc or a click outside closes.
+
+### Card links
+- **Copy link to card** in the card menu (one card selected) copies `https://retne.games/hub/#/b/<boardId>/c/<cardId>`. Opening that address (from anywhere) opens the board and shows the card the same way as a search result; the address then keeps only the board, so a reload doesn't jump back. A card that's gone gives a message pointing to Recently deleted. `#/b/<boardId>` on its own is a link to a board.
+- A link into this hub (same origin, path `/hub/`) in a note's text or as a link card opens **in the hub itself** (Ctrl/Cmd- or Shift-click: a new tab). Instead of the address it shows what it points to, "→ " and the card's words (or the board's name), with "Card on <board>" as its tooltip or a link card's second line. Names come from the open board, else the search index (refreshed at start-up, on opening Go to, and after copying a link); unknown targets show "Card link" or "Board link". A link card's own title, when set, wins. The stored text keeps the address.
 - **Add-card toolbar** (bottom on mobile, left on desktop): Note, Checklist, Image (file picker), Link, Section, Folder, Line, Right angle. Cards are added by **dragging** a button onto the canvas (an outline of the card follows the pointer and the card lands where it is dropped; dropping Image opens the file picker for that spot). A plain click only shows a hint; Enter or Space on a focused button adds the card in the middle of the view. A new card opens for editing; a toolbar card left empty stays on the board so it can be filled in later, unless editing is cancelled with Escape.
 - **Canvas:** fills the rest of the screen. A subtle dot grid that scales with zoom.
 - **Navigation state** in the URL hash: `#/b/<boardId>`, so refresh and browser back or forward work. No hash means the root board.
@@ -232,7 +247,7 @@ Notes:
 - **Select:** click or tap; Shift-click adds to the selection; drag a marquee on empty canvas to select several.
 - **Move:** drag. **Resize:** handle on the bottom-right corner (not on folders, which keep their standard size). Moving a **section** also moves the cards whose centre is inside it at the moment the drag starts.
 - **Colour and style:** chosen in the property column (below), from the 16 colours and the other fixed sets in section 4 ("Style").
-- **Context menu** (right-click, or long-press on touch): actions only: Copy, Cut, Paste, Duplicate, Bring to front, Send to back, Delete. Right-click or long-press on empty canvas offers Paste.
+- **Context menu** (right-click, or long-press on touch): actions only: Copy, Cut, Paste, Duplicate, Copy link to card (one card selected), Bring to front, Send to back, Delete. Right-click or long-press on empty canvas offers Paste.
 - **Property column:** appears while one or more objects of the **same kind** are selected, and disappears when they are deselected or the selection mixes kinds. On a desktop it is a narrow column attached to the toolbar's right edge, laid **over** the left edge of the canvas (the board doesn't move or resize); on a phone it is a strip attached above the bottom toolbar that scrolls sideways. It has a group per fill and per piece of text. Each property is **one small button that shows what is selected now** (a square of the colour, "Aa" in the font, "M" for the size, the alignment drawing...), or a dash when the selected objects differ. **Resting the mouse on it, or clicking or tapping it, opens a menu beside it** (above it on a phone) with the choices for that one property, the current one marked: a colour opens a 4 × 4 grid of the 16 colours, the rest a list of the choices with their names. A click or tap keeps the menu open until a choice is made, Escape is pressed or something else is clicked; with the mouse alone it closes shortly after the pointer leaves. With the keyboard, Enter, Space or the right or down arrow opens it, the arrow keys move through the choices and Enter picks. The same menu component serves every property of every kind of object. On/off properties (bold, italic, strike, flips, address line) are plain buttons that show whether they are on. A choice applies to all selected objects and is one undo step. The column stays open while text is being edited, and a change then joins that edit's undo step. Properties offered per object (a text's `color`, `font`, `size`, `bold`, `italic`, `align` and `valign` are as in section 4):
 
   | Object | Properties |
@@ -271,7 +286,7 @@ Notes:
 ### Input shortcuts
 - Drop image files onto the canvas to create image cards at the drop point.
 - Paste: an image from the clipboard creates an image card; a URL creates a link card; other text creates a note.
-- Keys: `Delete` or `Backspace` delete selection; `Ctrl/Cmd+Z` and `Ctrl/Cmd+Shift+Z` or `Ctrl+Y` undo and redo; `Ctrl/Cmd+C`, `X`, `V` copy, cut and paste cards; `Ctrl/Cmd+D` duplicate; `Ctrl/Cmd+A` select all; arrow keys nudge by one grid step (Shift: 1px; with snapping switched off, 1px and Shift 10px); `Esc` clears selection; `F` fits all.
+- Keys: `Delete` or `Backspace` delete selection; `Ctrl/Cmd+Z` and `Ctrl/Cmd+Shift+Z` or `Ctrl+Y` undo and redo; `Ctrl/Cmd+C`, `X`, `V` copy, cut and paste cards; `Ctrl/Cmd+D` duplicate; `Ctrl/Cmd+A` select all; arrow keys nudge by one grid step (Shift: 1px; with snapping switched off, 1px and Shift 10px); `Esc` clears selection; `F` fits all; `Ctrl/Cmd+K` or `/` opens Search and Go to.
 - **Undo and redo:** client-side stack of up to 100 operations per open board; covers create, delete, move, resize, colour, text edits and checklist changes.
 
 ### Saving

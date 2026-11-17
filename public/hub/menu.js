@@ -52,8 +52,9 @@ export class CardMenu {
     return !this.element.hidden;
   }
 
-  // canPaste: there are copied cards; canvas: the empty-canvas menu.
-  open(x, y, { canPaste = false, canvas = false }) {
+  // canPaste: there are copied cards; canvas: the empty-canvas menu;
+  // canLink: one card is selected, so a link to it can be copied.
+  open(x, y, { canPaste = false, canvas = false, canLink = false }) {
     const add = (item, action) => {
       item.addEventListener("click", () => {
         this.close();
@@ -92,7 +93,14 @@ export class CardMenu {
       add(withHint("Copy", `${MOD}C`), { type: "copy" }),
       add(withHint("Cut", `${MOD}X`), { type: "cut" }),
       paste,
-      add(withHint("Duplicate", `${MOD}D`), { type: "duplicate" }),
+      add(withHint("Duplicate", `${MOD}D`), { type: "duplicate" })
+    );
+
+    if (canLink) {
+      children.push(add(button("menu-item", "Copy link to card"), { type: "link" }));
+    }
+
+    children.push(
       separator(),
       add(button("menu-item", "Bring to front"), { type: "front" }),
       add(button("menu-item", "Send to back"), { type: "back" }),
