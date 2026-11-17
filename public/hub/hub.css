@@ -758,6 +758,44 @@ body.is-placing * {
   resize: none;
 }
 
+/* A note's text as a list (data-list on the text): every line is an item, with
+   its marker in the margin. The marker is drawn here, from a counter, so the
+   stored text stays plain; blank lines are gaps and aren't counted. The editor
+   is indented the same (--body-indent, set with the list), so the text
+   doesn't jump when editing starts. */
+.note-editor {
+  padding-left: calc(14px + var(--body-indent, 0px));
+}
+
+.note-text-inner[data-list] {
+  counter-reset: note-item;
+}
+
+.note-line {
+  position: relative;
+  padding-left: var(--body-indent, 1.9em);
+}
+
+.note-line:not(.is-blank)::before {
+  position: absolute;
+  left: 0;
+  width: 1.5em;
+  text-align: right;
+  counter-increment: note-item;
+}
+
+.note-text-inner[data-list="bullet"] .note-line:not(.is-blank)::before {
+  content: "•";
+}
+
+.note-text-inner[data-list="number"] .note-line:not(.is-blank)::before {
+  content: counter(note-item) ".";
+}
+
+.note-text-inner[data-list="alpha"] .note-line:not(.is-blank)::before {
+  content: counter(note-item, lower-alpha) ".";
+}
+
 .note-title-editor::placeholder,
 .note-editor::placeholder {
   color: var(--muted);

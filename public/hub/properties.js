@@ -19,12 +19,14 @@ import {
   COLOR_KEYS,
   COLOR_NAMES,
   FONT_NAMES,
+  LIST_NAMES,
   OBJECT_STYLES,
   SIZE_NAMES,
   VALIGN_NAMES,
   alphaOf,
   extraValue,
   extrasOf,
+  isList,
   sizesOf,
   textValue
 } from "./styles.js";
@@ -56,6 +58,7 @@ const ICONS = {
   "arrow-end": "M4 12h16M15 7l5 5-5 5",
   "arrow-start": "M20 12H4M9 7l-5 5 5 5",
   "arrow-both": "M4 12h16M15 7l5 5-5 5M9 7l-5 5 5 5",
+  "list-none": "M4 7h16M4 12h16M4 17h10",
   "shape-straight": "M4 18L20 6",
   "shape-elbow": "M4 18h8V6h8",
   "thickness-thin": "M3 12h18",
@@ -111,6 +114,14 @@ function shared(items, read) {
   const first = read(items[0]);
   return items.every((item) => read(item) === first) ? first : MIXED;
 }
+
+// How each kind of list looks on its button and in its menu.
+const LIST_FACES = {
+  none: () => icon("list-none"),
+  bullet: () => glyph("•"),
+  number: () => glyph("1."),
+  alpha: () => glyph("a.")
+};
 
 // The 16 colours of a palette as menu choices: "tone" colours are card fills,
 // "ink" colours are for text and lines. null is the theme's own.
@@ -587,13 +598,31 @@ export class PropertyBar {
       rows.push(style);
     }
 
-    if (has("align")) {
+    if (has("list")) {
       rows.push([this.choose({
+        label: `${set.label} list`,
+        options: Object.entries(LIST_NAMES).map(([value, name]) => ({ value, name, content: LIST_FACES[value] })),
+        read: read("list"),
+        pick: send("list")
+      })]);
+    }
+
+    if (has("align")) {
+      const align = this.choose({
         label: `${set.label} alignment`,
         options: Object.entries(ALIGN_NAMES).map(([value, name]) => ({ value, name, content: () => icon(value) })),
         read: read("align"),
         pick: send("align")
-      })]);
+      });
+
+      // A list is always left-aligned, so alignment is offered only while some
+      // of the selected texts aren't one (their own alignment is kept for when
+      // the list goes).
+      if (has("list")) {
+        align.when = (item) => !isList(item, set.key);
+      }
+
+      rows.push([align]);
     }
 
     if (has("valign")) {

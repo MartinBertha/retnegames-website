@@ -3,7 +3,7 @@
 
 import { fileUrl } from "./api.js";
 import { DEFAULT_LENGTH, DEFAULT_RISE, linePoints } from "./connectors.js";
-import { COLOR_KEYS, styleVars } from "./styles.js";
+import { COLOR_KEYS, styleVars, textValue } from "./styles.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const URL_PATTERN = /https?:\/\/[^\s<>"]+/gi;
@@ -105,6 +105,36 @@ function appendLinkedText(parent, text) {
   }
 
   parent.append(text.slice(index));
+}
+
+// A note's text: as it is, or as a list, where every line is an item. Its
+// bullet, number or letter is drawn by the stylesheet (hub.css) from the
+// data-list value, so the stored text stays plain. Blank lines are gaps that
+// aren't counted.
+function renderNoteBody(parent, text, list) {
+  if (list === "none") {
+    delete parent.dataset.list;
+    parent.removeAttribute("role");
+    appendLinkedText(parent, text);
+    return;
+  }
+
+  parent.dataset.list = list;
+  parent.setAttribute("role", "list");
+
+  for (const line of text.replace(/\n+$/, "").split("\n")) {
+    const item = el("div", "note-line");
+
+    if (line.trim()) {
+      item.setAttribute("role", "listitem");
+      appendLinkedText(item, line);
+    } else {
+      item.classList.add("is-blank");
+      item.append(document.createElement("br"));
+    }
+
+    parent.append(item);
+  }
 }
 
 function folderIcon() {
@@ -328,8 +358,10 @@ const RENDERERS = {
     title.hidden = !item.data.title;
 
     const text = card.querySelector(".note-text-inner");
+    const list = textValue(item, "body", "list");
+
     text.replaceChildren();
-    appendLinkedText(text, item.data.text);
+    renderNoteBody(text, item.data.text, list);
   },
 
   checklist(card, item) {

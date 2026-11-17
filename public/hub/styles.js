@@ -7,7 +7,7 @@
 //   item.color           the fill (a note's background, a folder's icon, a line's colour)
 //   data.style.alpha     75, 50 or 25 (percent opaque; absent means 100)
 //   data.style[set]      the text properties of one piece of text on the object:
-//                        { color, font, size, bold, italic, align, valign }
+//                        { color, font, size, bold, italic, list, align, valign }
 // Only values that differ from the default are stored, so objects that were
 // never styled look exactly as they always did.
 
@@ -42,6 +42,9 @@ export const FONT_NAMES = { sans: "Sans", serif: "Serif", mono: "Mono" };
 export const SIZE_NAMES = { s: "Small", m: "Medium", l: "Large", xl: "Extra large" };
 export const ALIGN_NAMES = { left: "Align left", center: "Align centre", right: "Align right" };
 export const VALIGN_NAMES = { top: "Align to top", middle: "Align to middle", bottom: "Align to bottom" };
+// How a piece of text is listed: plain, or every line an item with a bullet, a
+// number or a letter. A list is always left-aligned.
+export const LIST_NAMES = { none: "None", bullet: "Bullet list", number: "Numbered list", alpha: "Alphabet list" };
 
 // How opaque a fill (or an image, or a line) can be, in percent.
 export const ALPHAS = [100, 75, 50, 25];
@@ -65,7 +68,7 @@ export const OBJECT_STYLES = {
     alpha: "Fill opacity",
     sets: [
       { key: "title", label: "Title", bold: true, props: ["color", "font", "size", "bold", "italic", "align"] },
-      { key: "body", label: "Body", bold: false, valign: "top", props: ["color", "font", "size", "bold", "italic", "align", "valign"] }
+      { key: "body", label: "Body", bold: false, valign: "top", props: ["color", "font", "size", "bold", "italic", "list", "align", "valign"] }
     ]
   },
   checklist: {
@@ -242,9 +245,17 @@ export function defaultText(item, key, prop) {
       return true;
     case "align":
       return "left";
+    case "list":
+      return "none";
     default:
       return set.valign;
   }
+}
+
+// Whether a piece of text is a list (so it is left-aligned, whatever its
+// stored alignment, which comes back when the list goes).
+export function isList(item, key) {
+  return Boolean(setOf(item.type, key)?.props.includes("list")) && textValue(item, key, "list") !== "none";
 }
 
 // What a text property is now.
@@ -318,6 +329,8 @@ export function setAlpha(item, percent) {
 }
 
 const FLEX = { top: "flex-start", middle: "center", bottom: "flex-end" };
+// Room for the marker of a list item (in em, so it follows the text size).
+const LIST_INDENT = "1.9em";
 
 // The CSS custom properties that draw an object's style, set on its element;
 // only what differs from the stylesheet's own defaults. hub.css reads them as
@@ -369,7 +382,15 @@ export function styleVars(item) {
       vars[`${name}-address`] = "none";
     }
 
-    if (set.props.includes("align") && value("align") !== "left") {
+    // A list: the lines are indented to make room for their markers (the
+    // editor is indented the same), and the text is left-aligned.
+    const listed = isList(item, set.key);
+
+    if (listed) {
+      vars[`${name}-indent`] = LIST_INDENT;
+    }
+
+    if (set.props.includes("align") && value("align") !== "left" && !listed) {
       vars[`${name}-align`] = value("align");
     }
 
@@ -446,7 +467,8 @@ const VALUES = {
   font: Object.keys(FONT_NAMES),
   size: ALL_SIZES,
   align: Object.keys(ALIGN_NAMES),
-  valign: Object.keys(VALIGN_NAMES)
+  valign: Object.keys(VALIGN_NAMES),
+  list: Object.keys(LIST_NAMES)
 };
 
 function validProp(set, prop, value) {

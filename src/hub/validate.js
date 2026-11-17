@@ -33,7 +33,7 @@ export const STYLE_RULES = {
     alpha: true,
     sets: {
       title: { props: ["color", "font", "size", "bold", "italic", "align"] },
-      body: { props: ["color", "font", "size", "bold", "italic", "align", "valign"] }
+      body: { props: ["color", "font", "size", "bold", "italic", "list", "align", "valign"] }
     }
   },
   checklist: {
@@ -83,7 +83,8 @@ const STYLE_VALUES = {
   font: new Set(["sans", "serif", "mono"]),
   size: ["s", "m", "l", "xl"],
   align: new Set(["left", "center", "right"]),
-  valign: new Set(["top", "middle", "bottom"])
+  valign: new Set(["top", "middle", "bottom"]),
+  list: new Set(["none", "bullet", "number", "alpha"])
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;

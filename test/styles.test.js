@@ -8,11 +8,13 @@ import {
   ALPHAS,
   COLOR_KEYS,
   FONT_NAMES,
+  LIST_NAMES,
   OBJECT_STYLES,
   alphaOf,
   defaultExtra,
   extraValue,
   extrasOf,
+  isList,
   sanitizeStyle,
   setAlpha,
   setExtra,
@@ -400,5 +402,66 @@ describe("extras: borders, corners, flips and strokes", () => {
     const list = (style) => ({ ...note(), type: "checklist", data: { title: "", entries: [], style } });
     assert.equal(validateItem(list({ items: { strike: true } })).data.style.items.strike, true);
     rejects(list({ items: { strike: "yes" } }), /Invalid style/);
+  });
+});
+
+describe("list formatting of a note's body", () => {
+  it("is plain text by default, and stores only an actual list", () => {
+    const n = item("note", { size: "m" });
+
+    assert.deepEqual(Object.keys(LIST_NAMES), ["none", "bullet", "number", "alpha"]);
+    assert.equal(textValue(n, "body", "list"), "none");
+    assert.equal(isList(n, "body"), false);
+
+    setTextValue(n, "body", "list", "number");
+    assert.deepEqual(n.data.style, { body: { list: "number" } });
+    assert.equal(isList(n, "body"), true);
+
+    setTextValue(n, "body", "list", "none");
+    assert.equal(n.data.style, undefined);
+    assert.equal(isList(n, "body"), false);
+  });
+
+  it("is offered for a note's body and nowhere else", () => {
+    for (const [type, spec] of Object.entries(OBJECT_STYLES)) {
+      for (const set of spec.sets) {
+        assert.equal(set.props.includes("list"), type === "note" && set.key === "body", `${type}.${set.key}`);
+      }
+    }
+  });
+
+  it("indents the lines and draws them left-aligned, keeping the alignment for later", () => {
+    const n = item("note", { size: "m" });
+
+    setTextValue(n, "body", "align", "center");
+    assert.equal(styleVars(n)["--body-align"], "center");
+    assert.equal(styleVars(n)["--body-indent"], undefined);
+
+    setTextValue(n, "body", "list", "bullet");
+    assert.equal(styleVars(n)["--body-align"], undefined);
+    assert.equal(styleVars(n)["--body-indent"], "1.9em");
+    assert.equal(n.data.style.body.align, "center");
+
+    setTextValue(n, "body", "list", "none");
+    assert.equal(styleVars(n)["--body-align"], "center");
+    assert.equal(styleVars(n)["--body-indent"], undefined);
+  });
+
+  it("is sanitized for copied cards, and only for the body of a note", () => {
+    assert.deepEqual(sanitizeStyle("note", { body: { list: "alpha", align: "right" } }), { body: { list: "alpha", align: "right" } });
+    assert.equal(sanitizeStyle("note", { body: { list: "roman" } }), undefined);
+    assert.equal(sanitizeStyle("note", { title: { list: "bullet" } }), undefined);
+    assert.equal(sanitizeStyle("checklist", { items: { list: "bullet" } }), undefined);
+  });
+
+  it("is kept by the server for every kind of list, and nothing else", () => {
+    for (const list of Object.keys(LIST_NAMES)) {
+      assert.equal(validateItem(note({ style: { body: { list } } })).data.style.body.list, list);
+    }
+
+    rejects(note({ style: { body: { list: "roman" } } }), /Invalid style/);
+    rejects(note({ style: { body: { list: true } } }), /Invalid style/);
+    // A title (or a checklist) has no list; the property is dropped.
+    assert.equal(validateItem(note({ style: { title: { list: "bullet" } } })).data.style, undefined);
   });
 });
